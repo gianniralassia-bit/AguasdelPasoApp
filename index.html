@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="theme-color" content="#0284c7"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="AguasDelPaso"/>
+<meta name="application-name" content="Aguas Del Paso"/>
+<title>Aguas Del Paso</title>
+<link rel="manifest" href="manifest.json"/>
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png"/>
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png"/>
+<link rel="apple-touch-icon" href="apple-touch-icon.png"/>
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{brand:{blue:'#0284c7','blue-dark':'#0369a1',orange:'#f97316','orange-dark':'#ea580c'}}}}}</script>
+<style>
+*{ -webkit-tap-highlight-color:transparent } body{overscroll-behavior:none}
+.safe-bottom{padding-bottom:env(safe-area-inset-bottom,0)}
+.splash{animation:fadeOut .5s ease-in-out 2.2s forwards}
+@keyframes fadeOut{to{opacity:0;visibility:hidden}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes popIn{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes pulseSoft{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+.status-pendiente{background:#fef3c7;color:#92400e}
+.status-en-reparto{background:#dbeafe;color:#1e40af}
+.status-entregado{background:#d1fae5;color:#065f46}
+.status-cancelado{background:#fee2e2;color:#991b1b}
+.card-live{animation:fadeUp .35s ease both;transition:transform .25s ease,box-shadow .25s ease,opacity .25s ease}
+.drop-line{height:6px;border-radius:99px;background:linear-gradient(90deg,#0284c7,#f97316);margin:2px 0 10px;animation:pulseSoft .8s ease-in-out infinite}
+.handle-grip{animation:pulseSoft 1.8s ease-in-out infinite}
+.chip{display:inline-flex;align-items:center;justify-content:center;text-align:center;line-height:1.15}
+.stat-box{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+
+const {useState,useEffect,useMemo,useRef}=React;
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,9);
+const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const mesAR=()=>today().slice(0,7);
+const MESES_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const formatFechaLarga=d=>{if(!d)return'';const[y,m,day]=d.split('-');return`${Number(day)} de ${MESES_ES[Number(m)-1]} de ${y}`};
+const formatMes=ym=>{if(!ym)return'';const[y,m]=ym.split('-');return`${MESES_ES[Number(m)-1]||m} ${y}`};
+const mesesCercanos=()=>{const out=[];const now=new Date();for(let i=-6;i<=2;i++){const d=new Date(now.getFullYear(),now.getMonth()+i,1);out.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)}return out};
+const formatMoney=n=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(n||0);
+const esVentaPlata=p=>p.formaPago!=='Dispenser'&&p.tipoPrecio!=='cero';
+const precioDePedido=(p,db)=>{if(p?.tipoPrecio==='cero'||p?.tipoPrecio==='gratis')return 0;if(p?.tipoPrecio==='mayorista')return Number(p.precioUnitario??db.precios?.bidonMayorista??0);return Number(p.precioUnitario??db.precios?.bidon??2500)};
+const DB_KEY='aguas_del_paso_v1';
+const defaultData={repartidores:[{id:'r1',nombre:'Juan Pérez',telefono:'',vehiculoId:'v1'}],vehiculos:[{id:'v1',marca:'Fiat',modelo:'Fiorino',patente:'ABC 123',anio:2019,estado:'Activo'}],clientes:[],pedidos:[],dispensers:[],alquileres:[],barrioOrden:[],precios:{bidon:2500,bidonMayorista:2000,alquilerBase:15000}};
+const sortNombre=(a,b)=>(a.nombre||'').localeCompare(b.nombre||'','es',{sensitivity:'base'});
+const rangoBarrio=(db,barrio)=>{const list=db.barrioOrden||[];const i=list.findIndex(b=>(b||'').toLowerCase()===(barrio||'').toLowerCase());return i<0?999:i};
+const estadoAlquiler=a=>{if(!a)return'Debe';if(a.estadoPago==='Parcial'||(a.montoPagado>0&&!a.pagado&&a.estadoPago!=='Pagado'))return'Parcial';if(a.pagado||a.estadoPago==='Pagado')return'Pagado';return'Debe'};
+const ultimoMesPagado=(db,disp)=>{const pags=(db.alquileres||[]).filter(a=>a.dispenserClienteId===disp.id&&estadoAlquiler(a)==='Pagado').sort((a,b)=>b.mes.localeCompare(a.mes));return pags[0]||null};
+function loadDB(){try{const raw=localStorage.getItem(DB_KEY);if(raw)return{...defaultData,...JSON.parse(raw)}}catch(e){}return structuredClone(defaultData)}
+function saveDB(data){localStorage.setItem(DB_KEY,JSON.stringify(data))}
+function deudaDesdePedidos(db,clienteId){return (db.pedidos||[]).filter(p=>p.clienteId===clienteId&&p.formaPago!=='Dispenser'&&p.tipoPrecio!=='cero'&&(p.estadoPago==='Debe'||p.estadoPago==='Pendiente'||(p.formaPago==='Transferencia'&&!p.transferenciaAcreditada))).reduce((s,p)=>s+(Number(p.cantidad)||0)*precioDePedido(p,db),0)}
+function actualizarDeudaPorPedidos(db,clientes,pedidos){return clientes.map(c=>c.deuda===undefined&&!(pedidos||[]).some(p=>p.clienteId===c.id)?c:{...c,deuda:deudaDesdePedidos({...db,pedidos},c.id)})}
+function acreditarTransferencia(db,pedidoId){const p0=(db.pedidos||[]).find(x=>x.id===pedidoId);if(!p0)return db;const monto=p0.cantidad*precioDePedido(p0,db);const restaba=p0.estadoPago==='Debe'||p0.estadoPago==='Pendiente'||!p0.transferenciaAcreditada;const pedidos=db.pedidos.map(x=>x.id===pedidoId?{...x,transferenciaAcreditada:true,estadoPago:'Pagado'}:x);const clientes=db.clientes.map(c=>{if(c.id!==p0.clienteId)return c;return{...c,deuda:Math.max(0,(Number(c.deuda)||0)-(restaba?monto:0))}});return{...db,pedidos,clientes}}
+function eliminarPedido(db,pedidoId){const p0=(db.pedidos||[]).find(x=>x.id===pedidoId);if(!p0)return db;const monto=p0.cantidad*precioDePedido(p0,db);const restaba=p0.estadoPago==='Debe'||p0.estadoPago==='Pendiente'||(p0.formaPago==='Transferencia'&&!p0.transferenciaAcreditada);const pedidos=db.pedidos.filter(x=>x.id!==pedidoId);let alquileres=db.alquileres||[];if(p0.formaPago==='Dispenser'&&p0.estado==='Entregado'){const cli=(db.clientes||[]).find(c=>c.id===p0.clienteId);const disp=findDispenserForCliente(db,cli);if(disp){const mes=(p0.fecha||'').slice(0,7);alquileres=alquileres.map(a=>a.dispenserClienteId===disp.id&&a.mes===mes?{...a,bidonesConsumidos:Math.max(0,(a.bidonesConsumidos||0)-(Number(p0.cantidad)||0))}:a)}}const clientes=actualizarDeudaPorPedidos(db,db.clientes,pedidos);return{...db,pedidos,clientes,alquileres}}
+function aplicarEntrega(db,pedidoId,{estadoPago,formaPago,acreditada}){const p0=(db.pedidos||[]).find(x=>x.id===pedidoId);if(!p0)return db;const monto=p0.cantidad*precioDePedido({...p0,formaPago,tipoPrecio:p0.tipoPrecio},db);const yaEntregado=p0.estado==='Entregado';const pedidos=db.pedidos.map(x=>x.id!==pedidoId?x:{...x,estado:'Entregado',formaPago,estadoPago,transferenciaAcreditada:formaPago==='Transferencia'?!!acreditada:false});let alquileres=db.alquileres||[];if(!yaEntregado)alquileres=aplicarConsumoDispenser({...db,pedidos},{...p0,estado:'Entregado',formaPago});const clientes=db.clientes.map(c=>{if(c.id!==p0.clienteId)return c;let deuda=Number(c.deuda)||0;if(esVentaPlata({...p0,formaPago})&&(estadoPago==='Debe'||(formaPago==='Transferencia'&&!acreditada)))deuda+=monto;return{...c,deuda}});return{...db,pedidos,clientes,alquileres}}
+function findDispenserForCliente(db,cliente){if(!cliente)return null;return(db.dispensers||[]).find(d=>d.clienteId===cliente.id||(d.nombre&&cliente.nombre&&d.nombre.toLowerCase()===cliente.nombre.toLowerCase()))||null}
+function consumoMesDispenser(db,disp,fechaStr){if(!disp)return null;const mes=(fechaStr||today()).slice(0,7);const alq=(db.alquileres||[]).find(a=>a.dispenserClienteId===disp.id&&a.mes===mes);const incluidos=alq?.bidonesIncluidos??disp.bidonesIncluidos??10;const consumidos=alq?.bidonesConsumidos||0;return{mes,incluidos,consumidos,restantes:Math.max(0,incluidos-consumidos)}}
+function aplicarConsumoDispenser(db,pedido){if(!pedido||pedido.formaPago!=='Dispenser'||pedido.estado!=='Entregado')return db.alquileres||[];const cli=(db.clientes||[]).find(c=>c.id===pedido.clienteId);const disp=findDispenserForCliente(db,cli);if(!disp)return db.alquileres||[];let alquileres=[...(db.alquileres||[])];const mes=(pedido.fecha||today()).slice(0,7);const existente=alquileres.find(a=>a.dispenserClienteId===disp.id&&a.mes===mes);const cant=Number(pedido.cantidad)||0;if(existente){alquileres=alquileres.map(a=>a.id===existente.id?{...a,bidonesConsumidos:(a.bidonesConsumidos||0)+cant}:a)}else{alquileres.push({id:uid(),dispenserClienteId:disp.id,mes,monto:disp.precioMensual||15000,bidonesIncluidos:disp.bidonesIncluidos??10,bidonesConsumidos:cant,pagado:false,fechaPago:'',formaPago:'',observaciones:''})}return alquileres}
+
+const Icon=({name,size=20,className=''})=>{const s={width:size,height:size,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round',className};const paths={home:<><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>,truck:<><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></>,users:<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,droplet:<path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>,more:<><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></>,plus:<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,search:<><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>,x:<><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,edit:<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>,phone:<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.92.3 1.82.52 2.69a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.87.22 1.77.4 2.69.52A2 2 0 0 1 22 16.92z"/>,map:<><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></>,package:<><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></>,dollar:<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>};return <svg {...s}>{paths[name]||null}</svg>};
+const Logo=({size='md',className=''})=>{const sizes={sm:'w-10 h-10',md:'w-16 h-16',xl:'w-28 h-28'};return <img src="logo.jpg" alt="Logo" className={`${sizes[size]} rounded-full object-cover ${className}`}/>};
+const Card=({children,className='',onClick,...rest})=>(<div onClick={onClick} className={`card-live bg-white rounded-2xl shadow-sm border border-slate-100 p-4 ${onClick?'cursor-pointer':''} ${className}`} {...rest}>{children}</div>);
+const Badge=({status})=>{const map={'Pendiente':'status-pendiente','En reparto':'status-en-reparto','Entregado':'status-entregado','Cancelado':'status-cancelado'};return <span className={`chip px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${map[status]||'bg-slate-100'}`}>{status}</span>};
+const Button=({children,variant='primary',className='',onClick,disabled,size='md'})=>{const base='font-semibold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50';const sizes={sm:'px-3 py-2 text-sm',md:'px-4 py-3 text-base'};const variants={primary:'bg-brand-blue text-white shadow-md',orange:'bg-brand-orange text-white shadow-md',outline:'border-2 border-brand-blue text-brand-blue bg-white',ghost:'text-slate-600 bg-slate-100',danger:'bg-red-500 text-white'};return <button onClick={onClick} disabled={disabled} className={`${base} ${sizes[size]} ${variants[variant]} ${className}`}>{children}</button>};
+const Input=({label,...props})=>(<div className="mb-3">{label&&<label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>}<input className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-base bg-white" {...props}/></div>);
+const Select=({label,children,...props})=>(<div className="mb-3">{label&&<label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>}<select className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-base bg-white" {...props}>{children}</select></div>);
+const Textarea=({label,...props})=>(<div className="mb-3">{label&&<label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>}<textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-base bg-white min-h-[80px]" {...props}/></div>);
+const Header=({title,onBack,right})=>(<div className="bg-brand-blue text-white px-4 py-4 flex items-center gap-3 sticky top-0 z-30 shadow-md">{onBack&&<button onClick={onBack} className="p-1"><Icon name="x" size={22}/></button>}<h1 className="text-lg font-bold flex-1">{title}</h1>{right}</div>);
+const BottomNav=({tab,setTab})=>{const items=[{id:'inicio',label:'Inicio',icon:'home'},{id:'repartos',label:'Repartos',icon:'truck'},{id:'clientes',label:'Clientes',icon:'users'},{id:'dispensers',label:'Dispensers',icon:'droplet'},{id:'mas',label:'Más',icon:'more'}];return(<nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 safe-bottom z-40"><div className="flex justify-around items-center h-16 max-w-lg mx-auto">{items.map(item=>(<button key={item.id} onClick={()=>setTab(item.id)} className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 ${tab===item.id?'text-brand-blue scale-110':'text-slate-400'}`}><Icon name={item.icon} size={22}/><span className="text-[11px] font-medium">{item.label}</span></button>))}</div></nav>)};
+function Splash({onDone}){useEffect(()=>{const t=setTimeout(onDone,2500);return()=>clearTimeout(t)},[onDone]);return(<div className="splash fixed inset-0 z-50 bg-gradient-to-b from-sky-500 to-brand-blue flex flex-col items-center justify-center"><div style={{animation:'popIn .6s ease'}}><Logo size="xl" className="mb-4 shadow-2xl"/></div><p className="text-white/90 mt-4 text-sm font-medium">Gestión de repartos</p></div>)}
+
+function Dashboard({db,setTab,onNewPedido,onSearch}){
+  const dia=today();
+  const pedidosHoy=db.pedidos.filter(p=>p.fecha===dia);
+  const pendientes=pedidosHoy.filter(p=>p.estado==='Pendiente'||p.estado==='En reparto');
+  const entregados=pedidosHoy.filter(p=>p.estado==='Entregado');
+  const bidonesVendidos=pedidosHoy.filter(p=>esVentaPlata(p)).reduce((s,p)=>s+(p.cantidad||0),0);
+  const bidonesDisp=pedidosHoy.filter(p=>p.formaPago==='Dispenser').reduce((s,p)=>s+(p.cantidad||0),0);
+  const efectivo=pedidosHoy.filter(p=>p.formaPago==='Efectivo'&&p.estado==='Entregado'&&esVentaPlata(p)).reduce((s,p)=>s+p.cantidad*precioDePedido(p,db),0);
+  const transferencias=pedidosHoy.filter(p=>p.formaPago==='Transferencia'&&p.estado==='Entregado'&&esVentaPlata(p)).reduce((s,p)=>s+p.cantidad*precioDePedido(p,db),0);
+  const transPendientes=pedidosHoy.filter(p=>p.formaPago==='Transferencia'&&!p.transferenciaAcreditada&&p.estado!=='Cancelado').length;
+  const deudas=db.clientes.filter(c=>(c.deuda||0)>0).length;
+  const envasesPend=db.clientes.filter(c=>(c.envasesPendientes||0)>0).length;
+  return(<div className="pb-24">
+    <div className="bg-gradient-to-br from-brand-blue to-sky-600 text-white px-5 pt-8 pb-6 rounded-b-3xl shadow-lg">
+      <div className="flex items-center gap-3 mb-6"><Logo size="sm"/><div><h1 className="text-xl font-bold">Aguas Del Paso</h1><p className="text-sky-100 text-sm">{formatFechaLarga(dia)}</p></div></div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="stat-box bg-white/15 rounded-2xl p-3 min-h-[72px]"><div className="text-2xl font-bold leading-none">{pedidosHoy.length}</div><div className="text-xs text-sky-100 mt-1.5">Pedidos</div></div>
+        <div className="stat-box bg-white/15 rounded-2xl p-3 min-h-[72px]"><div className="text-2xl font-bold leading-none">{bidonesVendidos}</div><div className="text-xs text-sky-100 mt-1.5">Bidones vendidos</div></div>
+        <div className="stat-box bg-white/15 rounded-2xl p-3 min-h-[72px]"><div className="text-lg font-bold leading-none">{formatMoney(efectivo)}</div><div className="text-xs text-sky-100 mt-1.5">Efectivo</div></div>
+        <div className="stat-box bg-white/15 rounded-2xl p-3 min-h-[72px]"><div className="text-lg font-bold leading-none">{formatMoney(transferencias)}</div><div className="text-xs text-sky-100 mt-1.5">Transferencias</div></div>
+      </div>
+    </div>
+    <div className="px-4 -mt-4"><button onClick={onNewPedido} className="w-full bg-brand-orange text-white font-bold text-lg py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2"><Icon name="plus" size={24}/> NUEVO PEDIDO</button></div>
+    <div className="px-4 mt-5 space-y-3">
+      <div className="relative"><div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="search" size={18}/></div><input onFocus={onSearch} placeholder="Buscar cliente..." className="w-full pl-10 pr-4 py-3 rounded-xl border bg-white text-base" readOnly/></div>
+      <div className="grid grid-cols-2 gap-3">
+        <Card className="!p-3 stat-box min-h-[72px]"><div className="text-2xl font-bold text-amber-600 leading-none">{pendientes.length}</div><div className="text-xs text-slate-500 mt-1.5">Pendientes</div></Card>
+        <Card className="!p-3 stat-box min-h-[72px]"><div className="text-2xl font-bold text-emerald-600 leading-none">{entregados.length}</div><div className="text-xs text-slate-500 mt-1.5">Entregados</div></Card>
+        <Card className="!p-3 stat-box min-h-[72px]"><div className="text-2xl font-bold text-blue-600 leading-none">{transPendientes}</div><div className="text-xs text-slate-500 mt-1.5">Transf. a acreditar</div></Card>
+        <Card className="!p-3 stat-box min-h-[72px]"><div className="text-2xl font-bold text-red-500 leading-none">{deudas}</div><div className="text-xs text-slate-500 mt-1.5">Con deuda</div></Card>
+      </div>
+      {envasesPend>0&&<Card className="bg-orange-50"><div className="flex items-center gap-2 text-brand-orange-dark"><Icon name="package" size={20}/><span className="font-medium">{envasesPend} clientes deben envases</span></div></Card>}
+      <Card onClick={()=>setTab('mas')}><div className="font-semibold mb-1">Cierre de {formatFechaLarga(dia)}</div><div className="text-sm text-slate-600">Efectivo {formatMoney(efectivo)} · Transf. {formatMoney(transferencias)}</div><div className="text-xs text-slate-500 mt-1">Dispenser: {bidonesDisp} bidones (sin plata)</div><div className="text-xs text-brand-blue mt-1">Más → Reporte de ventas</div></Card>
+    </div>
+  </div>);
+}
+
+function RepartosScreen({db,setDb,fecha,setFecha,onEditPedido}){
+  const pedidos=db.pedidos.filter(p=>p.fecha===fecha).sort((a,b)=>Number(a.prioridad||99)-Number(b.prioridad||99));
+  const clientesMap=Object.fromEntries(db.clientes.map(c=>[c.id,c]));
+  const[dragId,setDragId]=useState(null);const[overId,setOverId]=useState(null);const[dragPos,setDragPos]=useState(null);
+  const[entregaId,setEntregaId]=useState(null);const[pagoPaso,setPagoPaso]=useState(null);const[pagoForma,setPagoForma]=useState('Efectivo');const[reprogId,setReprogId]=useState(null);const[reprogFecha,setReprogFecha]=useState(today());
+  const cambiarEstado=(id,nuevo)=>{if(nuevo==='Entregado'){const p=db.pedidos.find(x=>x.id===id);if(p&&p.formaPago==='Dispenser'){const next=aplicarEntrega(db,id,{estadoPago:'Incluido',formaPago:'Dispenser',acreditada:false});setDb(next);saveDB(next);return}if(p&&p.tipoPrecio==='cero'){const next=aplicarEntrega(db,id,{estadoPago:'Pagado',formaPago:p.formaPago||'Efectivo',acreditada:false});setDb(next);saveDB(next);return}setEntregaId(id);setPagoPaso('tipo');setPagoForma('Efectivo');return}const nuevos=db.pedidos.map(p=>p.id===id?{...p,estado:nuevo}:p);const next={...db,pedidos:nuevos};setDb(next);saveDB(next)};
+  const confirmarEntrega=(opts)=>{const next=aplicarEntrega(db,entregaId,opts);setDb(next);saveDB(next);setEntregaId(null);setPagoPaso(null)};
+  const reordenar=(fromId,toId)=>{if(!fromId||!toId||fromId===toId)return;const ids=pedidos.map(p=>p.id);const from=ids.indexOf(fromId),to=ids.indexOf(toId);if(from<0||to<0)return;const arr=[...ids];arr.splice(from,1);arr.splice(to,0,fromId);const nuevos=db.pedidos.map(p=>{const idx=arr.indexOf(p.id);return idx>=0?{...p,prioridad:idx+1}:p});const next={...db,pedidos:nuevos};setDb(next);saveDB(next);setOverId(null);setDragId(null)};
+  const cardBajoDedo=(x,y)=>{const el=document.elementFromPoint(x,y);const card=el&&el.closest?el.closest('[data-pedido-id]'):null;return card?card.getAttribute('data-pedido-id'):null};
+  const totalBidones=pedidos.filter(p=>p.estado!=='Cancelado').reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+  const bidonesEntregados=pedidos.filter(p=>p.estado==='Entregado').reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+  const bidonesQuedan=pedidos.filter(p=>p.estado==='Pendiente'||p.estado==='En reparto').reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+  const inicioSemana=(()=>{const[y,m,d]=fecha.split('-').map(Number);const dt=new Date(y,m-1,d);const dow=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-dow);return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`})();
+  const bidSemana=db.pedidos.filter(p=>p.estado==='Entregado'&&p.fecha>=inicioSemana&&p.fecha<=fecha).reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+  const bidMes=db.pedidos.filter(p=>p.estado==='Entregado'&&(p.fecha||'').startsWith(fecha.slice(0,7))).reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+  return(<div className="pb-24"><Header title="Reparto del día"/>
+    <div className="px-4 py-3 bg-white border-b flex items-center gap-3"><input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} className="flex-1 px-3 py-2 rounded-lg border text-base"/><Button size="sm" variant="ghost" onClick={()=>setFecha(today())}>Hoy</Button></div>
+    <div className="px-4 py-2 grid grid-cols-3 gap-2">
+      <div className="stat-box bg-sky-50 rounded-xl p-2 min-h-[56px]"><div className="text-lg font-bold text-brand-blue leading-none">{totalBidones}</div><div className="text-[10px] text-slate-500 mt-1">Pedidos</div></div>
+      <div className="stat-box bg-emerald-50 rounded-xl p-2 min-h-[56px]"><div className="text-lg font-bold text-emerald-600 leading-none">{bidonesEntregados}</div><div className="text-[10px] text-slate-500 mt-1">Entregados</div></div>
+      <div className="stat-box bg-amber-50 rounded-xl p-2 min-h-[56px]"><div className="text-lg font-bold text-amber-600 leading-none">{bidonesQuedan}</div><div className="text-[10px] text-slate-500 mt-1">Quedan</div></div>
+    </div>
+    <div className="px-4 pb-1 text-[11px] text-slate-500 flex justify-between"><span>Día {bidonesEntregados} bid</span><span>Semana {bidSemana} bid</span><span>Mes {bidMes} bid</span></div>
+    <div className="px-4 pt-1 flex justify-between items-center"><p className="text-xs text-slate-400">Mantené ☰ y arrastrá para ordenar.</p><button className="text-xs font-semibold text-brand-blue" onClick={()=>{const ordenados=[...pedidos].sort((a,b)=>{const ca=clientesMap[a.clienteId],cb=clientesMap[b.clienteId];const ra=rangoBarrio(db,ca?.barrio),rb=rangoBarrio(db,cb?.barrio);if(ra!==rb)return ra-rb;return sortNombre(ca||{},cb||{})});const ids=ordenados.map(p=>p.id);const nuevos=db.pedidos.map(p=>{const idx=ids.indexOf(p.id);return idx>=0?{...p,prioridad:idx+1}:p});const next={...db,pedidos:nuevos};setDb(next);saveDB(next)}}>Ordenar por barrio</button></div>
+    {dragId&&dragPos&&(()=>{const p=pedidos.find(x=>x.id===dragId);const cli=p?clientesMap[p.clienteId]:null;return(<div style={{position:'fixed',left:dragPos.x-140,top:dragPos.y-40,width:280,zIndex:80,pointerEvents:'none',transform:'scale(1.04) rotate(-2deg)',boxShadow:'0 20px 40px rgba(2,132,199,.35)'}} className="bg-white rounded-2xl border-2 border-brand-orange p-3"><div className="font-bold text-sm">{cli?.nombre||'Pedido'}</div><div className="text-xs text-slate-500">{p?.cantidad} bidones</div></div>)})()}
+    <div className="px-4 py-3 space-y-2.5">
+      {pedidos.length===0?(<div className="text-center py-12 text-slate-400"><Icon name="truck" size={48} className="mx-auto mb-3 opacity-40"/><p>No hay pedidos</p></div>):pedidos.map((p,idx)=>{
+        const cli=clientesMap[p.clienteId];const disp=findDispenserForCliente(db,cli);const info=disp?consumoMesDispenser(db,disp,p.fecha):null;
+        const isDrag=dragId===p.id;const isOver=overId===p.id&&dragId&&dragId!==p.id;
+        return(<React.Fragment key={p.id}>{isOver&&<div className="drop-line"/>}
+          <Card className={`!p-3 ${isDrag?'opacity-30 border-dashed border-2 border-brand-blue':''}`} data-pedido-id={p.id} onClick={()=>!dragId&&onEditPedido(p)} onDragOver={e=>{e.preventDefault();setOverId(p.id)}} onDrop={e=>{e.preventDefault();reordenar(dragId,p.id)}}>
+            <div className="flex items-start gap-2">
+              <div className="flex flex-col items-center touch-none select-none shrink-0" draggable onClick={e=>e.stopPropagation()}
+                onDragStart={()=>setDragId(p.id)} onDragEnd={()=>{setDragId(null);setOverId(null);setDragPos(null)}}
+                onTouchStart={e=>{const t=e.touches[0];setDragId(p.id);setDragPos({x:t.clientX,y:t.clientY})}}
+                onTouchMove={e=>{e.preventDefault();const t=e.touches[0];setDragPos({x:t.clientX,y:t.clientY});const id=cardBajoDedo(t.clientX,t.clientY);if(id)setOverId(id)}}
+                onTouchEnd={e=>{const t=e.changedTouches[0];const id=cardBajoDedo(t.clientX,t.clientY);if(id)reordenar(p.id,id);setDragId(null);setOverId(null);setDragPos(null)}}>
+                <div className="w-7 h-7 rounded-full bg-brand-blue text-white font-bold flex items-center justify-center text-xs">{idx+1}</div>
+                <div className={`mt-1 text-slate-400 ${isDrag?'text-brand-orange handle-grip':''}`}>☰</div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex justify-between gap-2"><div className="min-w-0"><div className="font-bold text-[15px] truncate">{cli?.nombre||'Cliente'}</div><div className="text-xs text-slate-500 truncate">{cli?.barrio}</div></div><Badge status={p.estado}/></div>
+                <div className="flex flex-wrap gap-1.5 mt-1.5 text-xs">
+                  <span className="chip bg-sky-50 text-brand-blue px-2 py-0.5 rounded-lg font-medium">{p.cantidad} bid.</span>
+                  <span className="chip bg-slate-50 px-2 py-0.5 rounded-lg">{p.formaPago}</span>
+                  {p.tipoPrecio==='mayorista'&&<span className="chip bg-violet-50 text-violet-700 px-2 py-0.5 rounded-lg">Mayorista</span>}
+                  {p.tipoPrecio==='cero'&&<span className="chip bg-slate-100 px-2 py-0.5 rounded-lg">$0</span>}
+                  {p.formaPago==='Dispenser'&&<span className="chip bg-orange-50 text-orange-700 px-2 py-0.5 rounded-lg">{info?.restantes??0}/{info?.incluidos??0}</span>}
+                  {p.estadoPago==='Debe'&&<span className="chip bg-red-50 text-red-600 px-2 py-0.5 rounded-lg">Debe</span>}
+                  {p.formaPago==='Transferencia'&&!p.transferenciaAcreditada&&p.estadoPago!=='Debe'&&<span className="chip bg-amber-50 text-amber-700 px-2 py-0.5 rounded-lg">Transf. pend.</span>}
+                </div>
+              </div>
+            </div>
+            {p.estado!=='Entregado'&&p.estado!=='Cancelado'&&(<div className="flex gap-2 mt-2">{p.estado==='Pendiente'&&<Button size="sm" variant="outline" className="flex-1 !py-2 text-xs" onClick={e=>{e.stopPropagation();cambiarEstado(p.id,'En reparto')}}>En ruta</Button>}<Button size="sm" variant="primary" className="flex-1 !py-2 text-xs" onClick={e=>{e.stopPropagation();cambiarEstado(p.id,'Entregado')}}>Entregar</Button>{p.estado==='En reparto'&&<Button size="sm" variant="ghost" className="flex-1 !py-2 text-xs" onClick={e=>{e.stopPropagation();setReprogId(p.id);setReprogFecha(p.fecha)}}>Reprogramar</Button>}<button className="px-2 text-red-500 text-xs font-semibold" onClick={e=>{e.stopPropagation();if(confirm('¿Borrar este pedido?')){const next=eliminarPedido(db,p.id);setDb(next);saveDB(next)}}}>✕</button></div>)}
+            {p.estado==='Entregado'&&(<div className="flex justify-end mt-1"><button className="text-[11px] text-red-500 font-semibold" onClick={e=>{e.stopPropagation();if(confirm('¿Borrar este pedido?')){const next=eliminarPedido(db,p.id);setDb(next);saveDB(next)}}}>Borrar</button></div>)}
+          </Card>
+        </React.Fragment>)})}
+    </div>
+    {reprogId&&(<div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center" onClick={()=>setReprogId(null)}><div className="bg-white w-full rounded-t-3xl p-4" onClick={e=>e.stopPropagation()}>
+        <div className="flex justify-between mb-3"><h2 className="font-bold">Reprogramar</h2><button onClick={()=>setReprogId(null)}><Icon name="x" size={22}/></button></div>
+        <Input label="Nueva fecha" type="date" value={reprogFecha} onChange={e=>setReprogFecha(e.target.value)}/>
+        <Button className="w-full" onClick={()=>{const pedidos=db.pedidos.map(x=>x.id===reprogId?{...x,fecha:reprogFecha,estado:'Pendiente'}:x);const next={...db,pedidos};setDb(next);saveDB(next);setReprogId(null)}}>Mover a esa fecha</Button>
+      </div></div>)}
+    {entregaId&&(()=>{const pe=db.pedidos.find(x=>x.id===entregaId);const cli=pe?clientesMap[pe.clienteId]:null;return(
+      <div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center" onClick={()=>setEntregaId(null)}>
+        <div className="bg-white w-full rounded-t-3xl p-4" onClick={e=>e.stopPropagation()}>
+          <div className="flex justify-between mb-3"><h2 className="font-bold">Entregar · {cli?.nombre||''}</h2><button onClick={()=>setEntregaId(null)}><Icon name="x" size={22}/></button></div>
+          {pagoPaso==='tipo'&&(<div className="space-y-2"><p className="text-sm text-slate-500 mb-2">{pe?.cantidad} bidones · ¿Pagó o debe?</p>
+            <Button className="w-full" variant="orange" onClick={()=>setPagoPaso('pago')}>Pagó</Button>
+            <Button className="w-full" variant="danger" onClick={()=>setPagoPaso('debe')}>Debe / te transfiere después</Button>
+          </div>)}
+          {pagoPaso==='pago'&&(<div className="space-y-2"><p className="text-sm text-slate-500 mb-2">¿Cómo pagó?</p>
+            <Button className="w-full" onClick={()=>confirmarEntrega({estadoPago:'Pagado',formaPago:'Efectivo',acreditada:false})}>Efectivo</Button>
+            <Button className="w-full" variant="outline" onClick={()=>setPagoPaso('transf')}>Transferencia</Button>
+          </div>)}
+          {pagoPaso==='debe'&&(<div className="space-y-2"><p className="text-sm text-slate-500 mb-2">Queda debiendo. ¿Cómo lo va a pagar?</p>
+            <Button className="w-full" variant="danger" onClick={()=>confirmarEntrega({estadoPago:'Debe',formaPago:'Efectivo',acreditada:false})}>Debe efectivo</Button>
+            <Button className="w-full" variant="orange" onClick={()=>confirmarEntrega({estadoPago:'Pendiente',formaPago:'Transferencia',acreditada:false})}>Debe transferencia</Button>
+          </div>)}
+          {pagoPaso==='transf'&&(<div className="space-y-2"><p className="text-sm text-slate-500 mb-2">¿La transferencia ya se acreditó?</p>
+            <Button className="w-full" onClick={()=>confirmarEntrega({estadoPago:'Pagado',formaPago:'Transferencia',acreditada:true})}>Sí, acreditada</Button>
+            <Button className="w-full" variant="orange" onClick={()=>confirmarEntrega({estadoPago:'Pendiente',formaPago:'Transferencia',acreditada:false})}>Todavía no (queda pendiente)</Button>
+          </div>)}
+        </div>
+      </div>)})()}
+  </div>);
+}
+
+function ClientesScreen({db,onSelectCliente,onNewCliente}){
+  const[q,setQ]=useState('');
+  const filtrados=useMemo(()=>{const t=q.toLowerCase().trim();const base=!t?db.clientes:db.clientes.filter(c=>(c.nombre||'').toLowerCase().includes(t)||(c.telefono||'').includes(t)||(c.barrio||'').toLowerCase().includes(t));return[...base].sort(sortNombre)},[db.clientes,q]);
+  const totalClientes=db.clientes.length;
+  const totalEnvases=db.clientes.reduce((s,c)=>s+(Number(c.envasesPendientes)||0),0);
+  const totalDeuda=db.clientes.reduce((s,c)=>s+(Number(c.deuda)||0),0);
+  return(<div className="pb-24"><Header title="Clientes" right={<button onClick={onNewCliente} className="p-2 rounded-full bg-white/20"><Icon name="plus" size={20}/></button>}/>
+    <div className="px-4 py-3">
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="rounded-2xl bg-sky-50 border border-sky-100 px-1.5 py-3 text-center flex flex-col items-center justify-center min-h-[72px]">
+          <div className="text-xl font-bold text-brand-blue leading-none">{totalClientes}</div>
+          <div className="text-[10px] text-slate-500 mt-1.5 leading-tight">Clientes</div>
+        </div>
+        <div className="rounded-2xl bg-orange-50 border border-orange-100 px-1.5 py-3 text-center flex flex-col items-center justify-center min-h-[72px]">
+          <div className="text-xl font-bold text-orange-600 leading-none">{totalEnvases}</div>
+          <div className="text-[10px] text-slate-500 mt-1.5 leading-tight">Envases deben</div>
+        </div>
+        <div className="rounded-2xl bg-red-50 border border-red-100 px-1.5 py-3 text-center flex flex-col items-center justify-center min-h-[72px]">
+          <div className="text-base font-bold text-red-600 leading-none">{formatMoney(totalDeuda)}</div>
+          <div className="text-[10px] text-slate-500 mt-1.5 leading-tight">Deuda total</div>
+        </div>
+      </div>
+      <div className="relative mb-3"><div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="search" size={18}/></div><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Nombre, teléfono, barrio..." className="w-full pl-10 pr-4 py-3 rounded-xl border bg-white text-base"/></div>
+      {filtrados.length===0?(<div className="text-center py-12 text-slate-400"><Icon name="users" size={48} className="mx-auto mb-3 opacity-40"/><p>No hay clientes</p><Button className="mt-4" onClick={onNewCliente}>Agregar</Button></div>):(
+        <div className="space-y-1.5">{filtrados.map(c=>{const disp=findDispenserForCliente(db,c);const info=disp?consumoMesDispenser(db,disp,today()):null;return(
+          <Card key={c.id} className="!p-2.5" onClick={()=>onSelectCliente(c)}>
+            <div className="flex justify-between items-center gap-2">
+              <div className="min-w-0 flex-1"><div className="font-semibold text-sm truncate">{c.nombre}{disp&&<span className="ml-1 text-[9px] bg-sky-100 text-brand-blue px-1.5 py-0.5 rounded-full">DISP</span>}</div><div className="text-[11px] text-slate-500 truncate">{c.barrio}{c.telefono?` · ${c.telefono}`:''}</div>{disp&&<div className="text-[10px] text-brand-blue">Quedan {info.restantes}/{info.incluidos}</div>}</div>
+              <div className="text-right text-[11px] shrink-0">{(c.deuda||0)>0&&<div className="text-red-500 font-semibold">{formatMoney(c.deuda)}</div>}{(c.envasesPendientes||0)>0&&<div className="text-orange-600">{c.envasesPendientes} env.</div>}<div className="text-slate-400">{c.cantidadHabitual||0} bid.</div></div>
+            </div>
+          </Card>)})}</div>)}
+    </div>
+  </div>);
+}
+function ClienteDetail({cliente,db,setDb,onBack,onEdit,onNewPedido,onEditPedido}){
+  const historial=db.pedidos.filter(p=>p.clienteId===cliente.id).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const disp=findDispenserForCliente(db,cliente);
+  const[mesSel,setMesSel]=useState(today().slice(0,7));
+  const infoDisp=disp?consumoMesDispenser(db,disp,mesSel+'-01'):null;
+  const alqMes=disp?(db.alquileres||[]).find(a=>a.dispenserClienteId===disp.id&&a.mes===mesSel):null;
+  const marcarPagoMes=(pagado,formaPago)=>{if(!disp)return;let alquileres=[...(db.alquileres||[])];if(alqMes){alquileres=alquileres.map(a=>a.id===alqMes.id?{...a,pagado,formaPago:pagado?(formaPago||a.formaPago||'Efectivo'):'',fechaPago:pagado?(a.fechaPago||today()):''}:a)}else{alquileres.push({id:uid(),dispenserClienteId:disp.id,mes:mesSel,monto:disp.precioMensual||15000,bidonesIncluidos:disp.bidonesIncluidos??10,bidonesConsumidos:infoDisp?.consumidos||0,pagado,fechaPago:pagado?today():'',formaPago:pagado?(formaPago||'Efectivo'):'',observaciones:''})}const next={...db,alquileres};setDb(next);saveDB(next)};
+  const actualizarEnvases=(delta)=>{const actual=Math.max(0,Number(cliente.envasesPendientes)||0);const nuevo=Math.max(0,actual+delta);const nextCli={...cliente,envasesPendientes:nuevo};const next={...db,clientes:db.clientes.map(c=>c.id===cliente.id?nextCli:c)};setDb(next);saveDB(next)};
+  return(<div className="pb-24"><Header title={cliente.nombre} onBack={onBack} right={<button onClick={onEdit} className="p-2 rounded-full bg-white/20"><Icon name="edit" size={18}/></button>}/>
+    <div className="px-4 py-4 space-y-4">
+      <Card><div className="space-y-2 text-sm">{cliente.telefono&&<div className="flex items-center gap-2"><Icon name="phone" size={16} className="text-slate-400"/> {cliente.telefono}</div>}<div className="flex items-center gap-2"><Icon name="map" size={16} className="text-slate-400"/> {cliente.direccion}</div><div className="text-slate-500">Barrio: {cliente.barrio} · Habitual: {cliente.cantidadHabitual||0}</div></div></Card>
+      {disp&&infoDisp&&(<Card className="bg-sky-50"><div className="font-semibold text-brand-blue mb-1">Dispenser</div><div className="text-sm">{formatMoney(disp.precioMensual)}/mes · N° {disp.dispenserId||'—'}</div>
+        <Select label="Mes" value={mesSel} onChange={e=>setMesSel(e.target.value)}>{mesesCercanos().map(m=><option key={m} value={m}>{formatMes(m)}</option>)}</Select>
+        <div className="text-sm">Incluidos {infoDisp.incluidos} · Consumidos {infoDisp.consumidos} · Quedan <strong className={infoDisp.restantes>0?'text-emerald-600':'text-orange-600'}>{infoDisp.restantes}</strong></div>
+        <div className="mt-3 pt-3 border-t border-sky-200"><div className="text-sm font-medium mb-2">¿Pagó {formatMes(mesSel)}?</div>
+          <div className="flex gap-2"><button onClick={()=>marcarPagoMes(true)} className={`flex-1 py-2 rounded-xl text-sm font-semibold ${(alqMes&&alqMes.pagado)?'bg-emerald-500 text-white':'bg-white border'}`}>Pagó</button><button onClick={()=>marcarPagoMes(false)} className={`flex-1 py-2 rounded-xl text-sm font-semibold ${(!alqMes||!alqMes.pagado)?'bg-amber-500 text-white':'bg-white border'}`}>No pagó</button></div>
+        </div></Card>)}
+      <div className="grid grid-cols-2 gap-3"><Card className="!p-3 stat-box min-h-[72px]"><div className={`text-xl font-bold leading-none ${(cliente.deuda||0)>0?'text-red-500':'text-emerald-600'}`}>{formatMoney(cliente.deuda||0)}</div><div className="text-xs text-slate-500 mt-1.5">Deuda</div></Card><Card className="!p-3 stat-box min-h-[72px]"><div className="text-xl font-bold text-orange-600 leading-none">{cliente.envasesPendientes||0}</div><div className="text-xs text-slate-500 mt-1.5">Envases</div></Card></div>
+      <Card><div className="flex items-center justify-between mb-3"><div><div className="font-semibold">¿Debe envases?</div><div className="text-xs text-slate-500 mt-0.5">Marcá cuántos envases tiene que devolverte</div></div><div className={`px-3 py-1.5 rounded-full text-sm font-bold ${(cliente.envasesPendientes||0)>0?'bg-orange-100 text-orange-700':'bg-emerald-100 text-emerald-700'}`}>{(cliente.envasesPendientes||0)>0?'SÍ':'NO'}</div></div><div className="grid grid-cols-3 gap-2"><button className={`py-3 rounded-xl border-2 font-bold ${(cliente.envasesPendientes||0)===0?'border-emerald-500 bg-emerald-50 text-emerald-700':'border-slate-200 text-slate-600'}`} onClick={()=>actualizarEnvases(-(Number(cliente.envasesPendientes)||0))}>No debe</button><button className={`py-3 rounded-xl border-2 font-bold ${(cliente.envasesPendientes||0)===1?'border-orange-500 bg-orange-50 text-orange-700':'border-slate-200 text-slate-600'}`} onClick={()=>actualizarEnvases(1-(Number(cliente.envasesPendientes)||0))}>1 envase</button><button className={`py-3 rounded-xl border-2 font-bold ${(cliente.envasesPendientes||0)===2?'border-orange-500 bg-orange-50 text-orange-700':'border-slate-200 text-slate-600'}`} onClick={()=>actualizarEnvases(2-(Number(cliente.envasesPendientes)||0))}>2 envases</button></div><div className="mt-3 text-center text-sm font-semibold {(cliente.envasesPendientes||0)>0?'text-orange-700':'text-emerald-700'}">{(cliente.envasesPendientes||0)>0?`Debe devolver ${cliente.envasesPendientes} envase${cliente.envasesPendientes===1?'':'s'}`:'No debe envases'}</div></Card>
+      <Button variant="orange" className="w-full" onClick={()=>onNewPedido(cliente)}><Icon name="plus" size={18}/> Nuevo pedido</Button>
+      <div><h3 className="font-bold mb-2">Historial</h3>{historial.length===0?<p className="text-slate-400 text-sm">Sin pedidos</p>:historial.map(p=>(
+        <Card key={p.id} className="!p-3 mb-2"><div className="flex justify-between gap-2"><div className="font-medium text-sm">{formatFechaLarga(p.fecha)} · {p.cantidad} bid. {p.tipoPrecio==='cero'?'($0)':p.tipoPrecio==='mayorista'?'(may.)':''}</div><div className="flex items-center gap-3"><button className="text-brand-blue text-xs font-semibold" onClick={()=>onEditPedido(p)}>Editar</button><button className="text-red-500 text-xs font-semibold" onClick={()=>{if(confirm('¿Borrar este pedido?')){const next=eliminarPedido(db,p.id);setDb(next);saveDB(next)}}}>Borrar</button></div></div>
+          <div className="text-xs text-slate-500">{p.formaPago} · {p.estado} · {formatMoney(p.cantidad*precioDePedido(p,db))}</div>
+          {p.formaPago==='Transferencia'&&!p.transferenciaAcreditada&&<div className="text-xs text-amber-700 font-semibold mt-1">Transferencia pendiente de acreditar</div>}
+          {p.formaPago!=='Dispenser'&&p.tipoPrecio!=='cero'&&(<button className={`mt-1 text-xs font-semibold ${p.estadoPago==='Debe'||p.estadoPago==='Pendiente'?'text-red-600':'text-emerald-600'}`} onClick={()=>{const estaImpaga=p.estadoPago==='Debe'||p.estadoPago==='Pendiente'||(p.formaPago==='Transferencia'&&!p.transferenciaAcreditada);const nuevoEstado=estaImpaga?'Pagado':'Debe';const pedidos=db.pedidos.map(x=>x.id===p.id?{...x,estadoPago:nuevoEstado,transferenciaAcreditada:estaImpaga?true:x.transferenciaAcreditada}:x);const clientes=actualizarDeudaPorPedidos(db,db.clientes,pedidos);const next={...db,pedidos,clientes};setDb(next);saveDB(next)}}>{p.estadoPago==='Debe'||p.estadoPago==='Pendiente'||(p.formaPago==='Transferencia'&&!p.transferenciaAcreditada)?'Pendiente · tocar si pagó':'Pagó · tocar si debe'}</button>)}
+        </Card>))}</div>
+    </div>
+  </div>);
+}
+
+function NuevoPedidoModal({db,setDb,onClose,clientePreseleccionado,pedidoEditar}){
+  const[clienteId,setClienteId]=useState(pedidoEditar?.clienteId||clientePreseleccionado?.id||'');
+  const[cantidad,setCantidad]=useState(pedidoEditar?.cantidad||clientePreseleccionado?.cantidadHabitual||2);
+  const[formaPago,setFormaPago]=useState(pedidoEditar?.formaPago||'Efectivo');
+  const[estado,setEstado]=useState(pedidoEditar?.estado||'Pendiente');
+  const[acreditada,setAcreditada]=useState(pedidoEditar?.transferenciaAcreditada||false);
+  const[obs,setObs]=useState(pedidoEditar?.observaciones||'');
+  const[repartidorId,setRepartidorId]=useState(pedidoEditar?.repartidorId||db.repartidores[0]?.id||'');
+  const[vehiculoId,setVehiculoId]=useState(pedidoEditar?.vehiculoId||db.vehiculos[0]?.id||'');
+  const[fecha,setFecha]=useState(pedidoEditar?.fecha||today());
+  const[tipoPrecio,setTipoPrecio]=useState(pedidoEditar?.tipoPrecio||'normal');
+  const[estadoPago,setEstadoPago]=useState(pedidoEditar?.estadoPago||(pedidoEditar?.formaPago==='Transferencia'&&!pedidoEditar?.transferenciaAcreditada?'Pendiente':'Pagado'));
+  const[busqueda,setBusqueda]=useState('');
+  useEffect(()=>{if(pedidoEditar)return;const cli=clientePreseleccionado||db.clientes.find(c=>c.id===clienteId);if(cli&&findDispenserForCliente(db,cli))setFormaPago('Dispenser')},[clienteId,clientePreseleccionado]);
+  const clientesFiltrados=useMemo(()=>{if(!busqueda)return db.clientes.slice(0,8);const t=busqueda.toLowerCase();return db.clientes.filter(c=>c.nombre.toLowerCase().includes(t)||(c.telefono||'').includes(t)).slice(0,8)},[db.clientes,busqueda]);
+  const clienteSel=db.clientes.find(c=>c.id===clienteId);
+  const dispenserDelCliente=useMemo(()=>{if(!clienteId&&!clienteSel)return null;return(db.dispensers||[]).find(d=>d.clienteId===clienteId||(clienteSel&&d.nombre&&d.nombre.toLowerCase()===(clienteSel.nombre||'').toLowerCase()))||null},[db.dispensers,clienteId,clienteSel]);
+  const infoDispenserMes=useMemo(()=>{if(!dispenserDelCliente)return null;const mes=(fecha||today()).slice(0,7);const alq=(db.alquileres||[]).find(a=>a.dispenserClienteId===dispenserDelCliente.id&&a.mes===mes);const incluidos=alq?.bidonesIncluidos??dispenserDelCliente.bidonesIncluidos??10;const consumidos=alq?.bidonesConsumidos||0;return{incluidos,consumidos,restantes:Math.max(0,incluidos-consumidos)}},[dispenserDelCliente,db.alquileres,fecha]);
+  const guardar=()=>{if(!clienteId||!cantidad)return alert('Seleccioná cliente y cantidad');const precioU=tipoPrecio==='cero'?0:(tipoPrecio==='mayorista'?(db.precios?.bidonMayorista??0):(db.precios?.bidon??2500));const pedido={id:pedidoEditar?.id||uid(),fecha,clienteId,cantidad:Number(cantidad),formaPago,estado,transferenciaAcreditada:formaPago==='Transferencia'?acreditada:false,observaciones:obs,repartidorId,vehiculoId,prioridad:db.pedidos.filter(p=>p.fecha===fecha).length+1,tipoPrecio,estadoPago:formaPago==='Dispenser'||tipoPrecio==='cero'?(tipoPrecio==='cero'?'Pagado':'Incluido'):(formaPago==='Transferencia'&&!acreditada?'Pendiente':estadoPago),precioUnitario:precioU};let pedidos=pedidoEditar?db.pedidos.map(p=>p.id===pedido.id?pedido:p):[...db.pedidos,pedido];const montoPedido=Number(cantidad)*precioU;const pagoAnterior=pedidoEditar?.estadoPago;let clientes=actualizarDeudaPorPedidos(db,db.clientes,pedidos);let alquileres=db.alquileres||[];if(formaPago==='Dispenser'&&estado==='Entregado'&&(!pedidoEditar||pedidoEditar.estado!=='Entregado')){alquileres=aplicarConsumoDispenser({...db,clientes,pedidos},pedido)}const next={...db,pedidos,clientes,alquileres};setDb(next);saveDB(next);onClose()};
+  return(<div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center"><div className="bg-white w-full max-w-lg rounded-t-3xl max-h-[92vh] overflow-y-auto">
+    <div className="sticky top-0 bg-white px-4 py-3 border-b flex justify-between"><h2 className="text-lg font-bold">{pedidoEditar?'Editar':'Nuevo'} pedido</h2><button onClick={onClose} className="p-2"><Icon name="x" size={22}/></button></div>
+    <div className="p-4">
+      {!clientePreseleccionado&&!pedidoEditar&&(<><Input label="Buscar cliente" value={busqueda} onChange={e=>setBusqueda(e.target.value)}/>{busqueda&&(<div className="mb-3 max-h-40 overflow-y-auto border rounded-xl">{clientesFiltrados.map(c=>(<button key={c.id} onClick={()=>{setClienteId(c.id);setBusqueda('');setCantidad(c.cantidadHabitual||2);if(findDispenserForCliente(db,c))setFormaPago('Dispenser')}} className={`w-full text-left px-3 py-2 border-b ${clienteId===c.id?'bg-sky-50':''}`}><div className="font-medium">{c.nombre}</div><div className="text-xs text-slate-500">{c.barrio}</div></button>))}</div>)}</>)}
+      {clienteSel&&(<div className="bg-sky-50 rounded-xl p-3 mb-3"><div className="font-bold">{clienteSel.nombre}</div><div className="text-sm">{clienteSel.barrio}</div>{dispenserDelCliente&&infoDispenserMes&&<div className="text-sm text-brand-blue">Quedan {infoDispenserMes.restantes}/{infoDispenserMes.incluidos}</div>}</div>)}
+      <Input label="Fecha" type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/>
+      <Input label="Cantidad" type="number" min="1" value={cantidad} onChange={e=>setCantidad(e.target.value)}/>
+      <Select label="Tipo de precio" value={tipoPrecio} onChange={e=>{setTipoPrecio(e.target.value);if(e.target.value==='cero')setEstadoPago('Pagado')}}>
+        <option value="normal">Normal ({formatMoney(db.precios?.bidon??2500)})</option>
+        <option value="mayorista">Mayorista ({formatMoney(db.precios?.bidonMayorista??0)})</option>
+        <option value="cero">$0 (sin cargo)</option>
+      </Select>
+      {formaPago!=='Dispenser'&&tipoPrecio!=='cero'&&(<Select label="¿Pagó o debe?" value={estadoPago==='Pendiente'?'Debe':estadoPago} onChange={e=>setEstadoPago(e.target.value)}><option value="Pagado">Pagó</option><option value="Debe">Debe</option></Select>)}
+      <Select label="Forma de pago" value={formaPago} onChange={e=>setFormaPago(e.target.value)}><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Dispenser">Dispenser</option></Select>
+      {formaPago==='Transferencia'&&(<label className="flex items-center gap-3 mb-3 p-3 bg-amber-50 rounded-xl"><input type="checkbox" checked={acreditada} onChange={e=>setAcreditada(e.target.checked)} className="w-5 h-5"/><span>Acreditada</span></label>)}
+      <Select label="Estado" value={estado} onChange={e=>setEstado(e.target.value)}><option>Pendiente</option><option>En reparto</option><option>Entregado</option><option>Cancelado</option></Select>
+      <Select label="Repartidor" value={repartidorId} onChange={e=>setRepartidorId(e.target.value)}>{db.repartidores.map(r=><option key={r.id} value={r.id}>{r.nombre}</option>)}</Select>
+      <Select label="Vehículo" value={vehiculoId} onChange={e=>setVehiculoId(e.target.value)}>{db.vehiculos.map(v=><option key={v.id} value={v.id}>{v.marca} {v.modelo}</option>)}</Select>
+      <Textarea label="Obs." value={obs} onChange={e=>setObs(e.target.value)}/>
+      <Button className="w-full" onClick={guardar}>{pedidoEditar?'Guardar':'Crear'}</Button>
+    </div>
+  </div></div>);
+}
+function ClienteFormModal({db,setDb,onClose,clienteEditar}){
+  const[form,setForm]=useState(clienteEditar?{...clienteEditar,envasesPendientes:Number(clienteEditar.envasesPendientes??Math.max(0,(clienteEditar.envasesEntregados||0)-(clienteEditar.envasesDevueltos||0)))}:{nombre:'',telefono:'',direccion:'',barrio:'',cantidadHabitual:2,deuda:0,envasesPendientes:0});
+  const guardar=()=>{if(!form.nombre.trim())return alert('Nombre obligatorio');const cli={...form,id:clienteEditar?.id||uid(),envasesPendientes:Math.max(0,Number(form.envasesPendientes)||0)};const clientes=clienteEditar?db.clientes.map(c=>c.id===cli.id?cli:c):[...db.clientes,cli];const next={...db,clientes};setDb(next);saveDB(next);onClose(cli)};
+  return(<div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center"><div className="bg-white w-full max-w-lg rounded-t-3xl max-h-[92vh] overflow-y-auto">
+    <div className="sticky top-0 bg-white px-4 py-3 border-b flex justify-between"><h2 className="text-lg font-bold">{clienteEditar?'Editar':'Nuevo'} cliente</h2><button onClick={()=>onClose()} className="p-2"><Icon name="x" size={22}/></button></div>
+    <div className="p-4"><Input label="Nombre *" value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})}/><Input label="Teléfono" value={form.telefono} onChange={e=>setForm({...form,telefono:e.target.value})}/><Input label="Dirección" value={form.direccion} onChange={e=>setForm({...form,direccion:e.target.value})}/><Input label="Barrio" value={form.barrio} onChange={e=>setForm({...form,barrio:e.target.value})}/><Input label="Habitual" type="number" value={form.cantidadHabitual} onChange={e=>setForm({...form,cantidadHabitual:Number(e.target.value)})}/><Button className="w-full" onClick={guardar}>Guardar</Button></div>
+  </div></div>);
+}
+
+function DispensersScreen({db,setDb}){
+  const[selected,setSelected]=useState(null);const[showNew,setShowNew]=useState(false);const[editingDisp,setEditingDisp]=useState(null);const[editingAlq,setEditingAlq]=useState(null);const[filtroDisp,setFiltroDisp]=useState('todos');
+  const[form,setForm]=useState({nombre:'',telefono:'',direccion:'',barrio:'',dispenserId:'',fechaInicio:today(),precioMensual:db.precios?.alquilerBase||15000,bidonesIncluidos:10,estado:'Activo',clienteId:''});
+  const resetForm=()=>setForm({nombre:'',telefono:'',direccion:'',barrio:'',dispenserId:'',fechaInicio:today(),precioMensual:db.precios?.alquilerBase||15000,bidonesIncluidos:10,estado:'Activo',clienteId:''});
+  const guardarDispenser=()=>{if(!form.nombre)return alert('Nombre obligatorio');let clientes=[...db.clientes];let clienteId=form.clienteId;if(!clienteId){const existente=clientes.find(c=>(c.nombre||'').toLowerCase()===form.nombre.toLowerCase());if(existente)clienteId=existente.id;else{const nuevoCli={id:uid(),nombre:form.nombre,telefono:form.telefono||'',direccion:form.direccion||'',barrio:form.barrio||'',cantidadHabitual:form.bidonesIncluidos||10,observaciones:'Dispenser',deuda:0,envasesEntregados:0,envasesDevueltos:0,envasesPendientes:0};clientes=[...clientes,nuevoCli];clienteId=nuevoCli.id}}const dataDisp={...form,clienteId};const dispensers=editingDisp?db.dispensers.map(d=>d.id===editingDisp.id?{...dataDisp,id:editingDisp.id}:d):[...db.dispensers,{...dataDisp,id:uid()}];const next={...db,dispensers,clientes};setDb(next);saveDB(next);setShowNew(false);setEditingDisp(null);resetForm();if(selected&&editingDisp&&selected.id===editingDisp.id)setSelected({...dataDisp,id:editingDisp.id})};
+  if(selected){
+    const alquileres=(db.alquileres||[]).filter(a=>a.dispenserClienteId===selected.id).sort((a,b)=>b.mes.localeCompare(a.mes));
+    const mesActual=mesAR();
+    let alqMes=alquileres.find(a=>a.mes===mesActual);
+    if(!alqMes){alqMes={id:null,mes:mesActual,monto:selected.precioMensual||15000,bidonesIncluidos:selected.bidonesIncluidos??10,bidonesConsumidos:0,pagado:false,estadoPago:'Debe',montoPagado:0,fechaPago:'',formaPago:''}}
+    const estadoDe=a=>{if(a.estadoPago==='Parcial'||(a.montoPagado>0&&!a.pagado&&a.estadoPago!=='Pagado'))return'Parcial';if(a.pagado||a.estadoPago==='Pagado')return'Pagado';return'Debe'};
+    const badgeCls=e=>e==='Pagado'?'bg-emerald-100 text-emerald-700':e==='Parcial'?'bg-amber-100 text-amber-700':'bg-red-100 text-red-700';
+    const incM=alqMes.bidonesIncluidos??selected.bidonesIncluidos??10;const consM=alqMes.bidonesConsumidos||0;const restM=Math.max(0,incM-consM);
+    const estM=estadoDe(alqMes);
+    const debeAlq=alquileres.reduce((s,a)=>{const est=estadoDe(a);const monto=Number(a.monto||selected.precioMensual||0);const pagado=Number(a.montoPagado||0);if(est==='Debe')return s+monto;if(est==='Parcial')return s+Math.max(0,monto-pagado);return s},0);
+    return(<div className="pb-24"><Header title={selected.nombre} onBack={()=>setSelected(null)} right={<button onClick={()=>{setEditingDisp(selected);setForm(selected);setShowNew(true)}} className="p-2 rounded-full bg-white/20"><Icon name="edit" size={18}/></button>}/>
+      <div className="px-4 py-4 space-y-3">
+        <Card className="bg-sky-50 !p-3">
+          <div className="text-sm font-semibold text-brand-blue mb-1">Cliente con Dispenser</div>
+          <div className="text-xs text-slate-600">Alquiler {formatMoney(selected.precioMensual)}/mes · N° {selected.dispenserId||'—'}</div>
+          <div className={`mt-2 font-bold ${estM==='Pagado'?'text-emerald-600':estM==='Parcial'?'text-amber-600':'text-red-600'}`}>{formatMes(mesActual)} — {estM==='Pagado'?'PAGÓ':estM==='Parcial'?'PARCIAL':'DEBE'}</div>
+          <div className="text-sm mt-1">Incluidos {incM} · Consumidos {consM} · <span className={restM>0?'text-emerald-600 font-semibold':'text-orange-600 font-semibold'}>Quedan {restM}</span></div>
+          {debeAlq>0&&<div className="text-xs text-red-600 mt-1 font-medium">Debe alquileres: {formatMoney(debeAlq)}</div>}
+        </Card>
+        <div className="flex justify-between items-center"><h3 className="font-bold">Historial de alquileres</h3><Button size="sm" variant="orange" onClick={()=>{const mes=mesAR();if((db.alquileres||[]).some(a=>a.dispenserClienteId===selected.id&&a.mes===mes))return alert('Ya existe el mes actual');const alq={id:uid(),dispenserClienteId:selected.id,mes,monto:selected.precioMensual||15000,bidonesIncluidos:selected.bidonesIncluidos??10,bidonesConsumidos:0,pagado:false,estadoPago:'Debe',montoPagado:0,fechaPago:'',formaPago:'',observaciones:''};const next={...db,alquileres:[...(db.alquileres||[]),alq]};setDb(next);saveDB(next)}}>+ Mes</Button></div>
+        {alquileres.length===0&&<p className="text-sm text-slate-400 text-center py-4">Sin meses cargados. Tocá + Mes.</p>}
+        {alquileres.map(a=>{const inc=a.bidonesIncluidos??selected.bidonesIncluidos??10;const cons=a.bidonesConsumidos||0;const rest=Math.max(0,inc-cons);const est=estadoDe(a);const monto=Number(a.monto||selected.precioMensual||0);const pagadoN=Number(a.montoPagado||0);
+          return(<Card key={a.id} className="!p-3" onClick={()=>setEditingAlq({...a,bidonesIncluidos:inc,estadoPago:est,montoPagado:pagadoN,monto})}>
+            <div className="flex justify-between items-start gap-2">
+              <div className="min-w-0"><div className="font-semibold">{formatMes(a.mes)}</div>
+                <div className="text-[11px] text-slate-500">{est==='Pagado'?(a.formaPago||'Pagado')+(a.fechaPago?` · ${a.fechaPago.slice(5).replace('-','/')}`:''):est==='Parcial'?`Pagó ${formatMoney(pagadoN)} de ${formatMoney(monto)}`:'Sin pago'}</div>
+                <div className="text-[11px] mt-0.5">{inc} incl. · {cons} cons. · <span className={rest>0?'text-emerald-600':'text-orange-600'}>quedan {rest}</span></div>
+              </div>
+              <span className={`chip text-xs px-2 py-1 rounded-full shrink-0 ${badgeCls(est)}`}>{est==='Pagado'?'✓ Pagó':est}</span>
+            </div>
+          </Card>)})}
+      </div>
+      {editingAlq&&(<div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center"><div className="bg-white w-full rounded-t-3xl p-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between mb-3"><h2 className="font-bold">{formatMes(editingAlq.mes)}</h2><button onClick={()=>setEditingAlq(null)}><Icon name="x" size={22}/></button></div>
+        <Input label="Incluidos" type="number" value={editingAlq.bidonesIncluidos??10} onChange={e=>setEditingAlq({...editingAlq,bidonesIncluidos:Number(e.target.value)})}/>
+        <Input label="Consumidos" type="number" value={editingAlq.bidonesConsumidos||0} onChange={e=>setEditingAlq({...editingAlq,bidonesConsumidos:Number(e.target.value)})}/>
+        <Input label="Monto alquiler ($)" type="number" value={editingAlq.monto||selected.precioMensual||0} onChange={e=>setEditingAlq({...editingAlq,monto:Number(e.target.value)})}/>
+        <div className="text-xs font-medium text-slate-500 mb-1.5">Estado del pago</div>
+        <div className="flex gap-2 mb-3">
+          <button onClick={()=>setEditingAlq({...editingAlq,estadoPago:'Pagado',pagado:true,montoPagado:Number(editingAlq.monto||selected.precioMensual||0)})} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold ${editingAlq.estadoPago==='Pagado'?'bg-emerald-500 text-white':'bg-slate-100'}`}>Pagó</button>
+          <button onClick={()=>setEditingAlq({...editingAlq,estadoPago:'Parcial',pagado:false})} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold ${editingAlq.estadoPago==='Parcial'?'bg-amber-500 text-white':'bg-slate-100'}`}>Parcial</button>
+          <button onClick={()=>setEditingAlq({...editingAlq,estadoPago:'Debe',pagado:false,montoPagado:0})} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold ${editingAlq.estadoPago==='Debe'?'bg-red-500 text-white':'bg-slate-100'}`}>Debe</button>
+        </div>
+        {editingAlq.estadoPago==='Parcial'&&<Input label="Monto pagado ($)" type="number" value={editingAlq.montoPagado||0} onChange={e=>setEditingAlq({...editingAlq,montoPagado:Number(e.target.value)})}/>}
+        {(editingAlq.estadoPago==='Pagado'||editingAlq.estadoPago==='Parcial')&&(<>
+          <Select label="Forma de pago" value={editingAlq.formaPago||''} onChange={e=>setEditingAlq({...editingAlq,formaPago:e.target.value})}><option value="">—</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option></Select>
+          <Input label="Fecha de pago" type="date" value={editingAlq.fechaPago||''} onChange={e=>setEditingAlq({...editingAlq,fechaPago:e.target.value})}/>
+        </>)}
+        <Button className="w-full" onClick={()=>{const data={...editingAlq,pagado:editingAlq.estadoPago==='Pagado'};const alquileres=(db.alquileres||[]).map(a=>a.id===editingAlq.id?data:a);const next={...db,alquileres};setDb(next);saveDB(next);setEditingAlq(null)}}>Guardar</Button>
+      </div></div>)}
+    </div>)}
+  const activos=db.dispensers.filter(d=>d.estado==='Activo');const sumaAlq=activos.reduce((s,d)=>s+Number(d.precioMensual||0),0);const consumoMes=(db.alquileres||[]).filter(a=>a.mes===mesAR()).reduce((s,a)=>s+(a.bidonesConsumidos||0),0);const consumoTotal=(db.alquileres||[]).reduce((s,a)=>s+(a.bidonesConsumidos||0),0);
+  const mesHoy=mesAR();
+  const infoDisp=d=>{const alqMes=(db.alquileres||[]).find(a=>a.dispenserClienteId===d.id&&a.mes===mesHoy);const est=estadoAlquiler(alqMes);const last=ultimoMesPagado(db,d);return{est,last,alqMes}};
+  const alDia=activos.filter(d=>infoDisp(d).est==='Pagado').length;const atrasados=activos.filter(d=>infoDisp(d).est!=='Pagado').length;
+  const marcarMesActual=(d,pagado)=>{let alquileres=[...(db.alquileres||[])];const ex=alquileres.find(a=>a.dispenserClienteId===d.id&&a.mes===mesHoy);if(ex)alquileres=alquileres.map(a=>a.id===ex.id?{...a,pagado,estadoPago:pagado?'Pagado':'Debe',fechaPago:pagado?today():'',formaPago:pagado?(a.formaPago||'Efectivo'):a.formaPago}:a);else alquileres.push({id:uid(),dispenserClienteId:d.id,mes:mesHoy,monto:d.precioMensual||15000,bidonesIncluidos:d.bidonesIncluidos??10,bidonesConsumidos:0,pagado,estadoPago:pagado?'Pagado':'Debe',montoPagado:pagado?(d.precioMensual||0):0,fechaPago:pagado?today():'',formaPago:pagado?'Efectivo':'',observaciones:''});const next={...db,alquileres};setDb(next);saveDB(next)};
+  const lista=[...db.dispensers].sort(sortNombre).filter(d=>{if(filtroDisp==='aldia')return infoDisp(d).est==='Pagado';if(filtroDisp==='atrasados')return infoDisp(d).est!=='Pagado';return true});
+  return(<div className="pb-24"><Header title="Dispensers" right={<button onClick={()=>{resetForm();setEditingDisp(null);setShowNew(true)}} className="p-2 rounded-full bg-white/20"><Icon name="plus" size={20}/></button>}/>
+    <div className="px-4 py-3 space-y-2">
+      <Card className="bg-sky-50 !p-3"><div className="font-semibold text-brand-blue mb-2 text-center">Resumen · {formatMes(mesHoy)}</div><div className="grid grid-cols-3 gap-2"><div className="stat-box"><div className="text-lg font-bold leading-none">{activos.length}</div><div className="text-[10px] text-slate-500 mt-1">Activos</div></div><div className="stat-box"><div className="text-lg font-bold text-emerald-600 leading-none">{alDia}</div><div className="text-[10px] text-slate-500 mt-1">Al día</div></div><div className="stat-box"><div className="text-lg font-bold text-orange-600 leading-none">{atrasados}</div><div className="text-[10px] text-slate-500 mt-1">Atrasados</div></div></div><div className="text-xs text-center text-slate-500 mt-2">Alquileres {formatMoney(sumaAlq)} · Consumo mes {consumoMes} · Hist. {consumoTotal}</div></Card>
+      <div className="flex gap-2"><button onClick={()=>setFiltroDisp('todos')} className={`flex-1 py-2 rounded-xl text-xs font-semibold ${filtroDisp==='todos'?'bg-brand-blue text-white':'bg-white border'}`}>Todos</button><button onClick={()=>setFiltroDisp('aldia')} className={`flex-1 py-2 rounded-xl text-xs font-semibold ${filtroDisp==='aldia'?'bg-emerald-500 text-white':'bg-white border'}`}>Al día</button><button onClick={()=>setFiltroDisp('atrasados')} className={`flex-1 py-2 rounded-xl text-xs font-semibold ${filtroDisp==='atrasados'?'bg-orange-500 text-white':'bg-white border'}`}>Atrasados</button></div>
+      {lista.map(d=>{const inf=infoDisp(d);return(
+        <Card key={d.id} className="!p-3" onClick={()=>setSelected(d)}>
+          <div className="flex justify-between items-start gap-2">
+            <div className="min-w-0"><div className="font-bold truncate">{d.nombre}</div><div className="text-sm text-slate-500">{formatMoney(d.precioMensual)}/mes</div>
+              {inf.last?<div className="inline-block mt-1 text-[11px] font-semibold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Último pago: {formatMes(inf.last.mes)}</div>:<div className="inline-block mt-1 text-[11px] font-semibold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Sin pagos</div>}
+            </div>
+            <span className={`chip text-[11px] px-2 py-1 rounded-full ${inf.est==='Pagado'?'bg-emerald-100 text-emerald-700':'bg-orange-100 text-orange-700'}`}>{inf.est==='Pagado'?'Al día':formatMes(mesHoy)+' debe'}</span>
+          </div>
+          <div className="flex gap-2 mt-2" onClick={e=>e.stopPropagation()}>
+            <button className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700" onClick={()=>marcarMesActual(d,true)}>Pagó {formatMes(mesHoy).split(' ')[0]}</button>
+            <button className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold bg-orange-50 text-orange-700" onClick={()=>marcarMesActual(d,false)}>Debe mes</button>
+          </div>
+        </Card>)})}
+    </div>
+    {showNew&&(<div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center"><div className="bg-white w-full rounded-t-3xl p-4 max-h-[90vh] overflow-y-auto">
+      <div className="flex justify-between mb-3"><h2 className="font-bold">{editingDisp?'Editar':'Nuevo'} dispenser</h2><button onClick={()=>{setShowNew(false);setEditingDisp(null)}}><Icon name="x" size={22}/></button></div>
+      <Input label="Nombre *" value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})}/><Input label="Tel" value={form.telefono} onChange={e=>setForm({...form,telefono:e.target.value})}/><Input label="Dirección" value={form.direccion} onChange={e=>setForm({...form,direccion:e.target.value})}/><Input label="Barrio" value={form.barrio} onChange={e=>setForm({...form,barrio:e.target.value})}/><Input label="N° Dispenser" value={form.dispenserId} onChange={e=>setForm({...form,dispenserId:e.target.value})}/><Input label="Alquiler $" type="number" value={form.precioMensual} onChange={e=>setForm({...form,precioMensual:e.target.value})}/><Input label="Bidones incluidos" type="number" min="0" value={form.bidonesIncluidos} onChange={e=>setForm({...form,bidonesIncluidos:Number(e.target.value)})}/>
+      <Select label="Vincular cliente" value={form.clienteId||''} onChange={e=>setForm({...form,clienteId:e.target.value})}><option value="">—</option>{db.clientes.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}</Select>
+      <Button className="w-full" onClick={guardarDispenser}>Guardar</Button>
+    </div></div>)}
+  </div>);
+}
+
+function MasScreen({db,setDb}){
+  const[section,setSection]=useState(null);const[fechaReporte,setFechaReporte]=useState(today());const[modoReporte,setModoReporte]=useState('dia');const[anioReporte,setAnioReporte]=useState(String(new Date().getFullYear()));const[mesReporte,setMesReporte]=useState(mesAR());const[fechaCierre,setFechaCierre]=useState(today());const importRef=useRef(null);
+  const calcStats=(lista)=>{const vendidos=lista.filter(p=>p.estado==='Entregado');const bidN=vendidos.filter(p=>p.tipoPrecio!=='mayorista'&&p.tipoPrecio!=='cero'&&p.formaPago!=='Dispenser').reduce((s,p)=>s+(Number(p.cantidad)||0),0);const bidM=vendidos.filter(p=>p.tipoPrecio==='mayorista').reduce((s,p)=>s+(Number(p.cantidad)||0),0);const bid0=vendidos.filter(p=>p.tipoPrecio==='cero').reduce((s,p)=>s+(Number(p.cantidad)||0),0);const bidD=vendidos.filter(p=>p.formaPago==='Dispenser').reduce((s,p)=>s+(Number(p.cantidad)||0),0);const cobrado=vendidos.filter(p=>p.estadoPago==='Pagado'&&esVentaPlata(p)&&!(p.formaPago==='Transferencia'&&!p.transferenciaAcreditada)).reduce((s,p)=>s+p.cantidad*precioDePedido(p,db),0);const debe=vendidos.filter(p=>p.estadoPago==='Debe'&&esVentaPlata(p)).reduce((s,p)=>s+p.cantidad*precioDePedido(p,db),0);const efec=vendidos.filter(p=>p.formaPago==='Efectivo'&&p.estadoPago==='Pagado'&&esVentaPlata(p)).reduce((s,p)=>s+p.cantidad*precioDePedido(p,db),0);const trans=vendidos.filter(p=>p.formaPago==='Transferencia'&&p.transferenciaAcreditada&&esVentaPlata(p)).reduce((s,p)=>s+p.cantidad*precioDePedido(p,db),0);return{vendidos,bidN,bidM,bid0,bidD,cobrado,debe,efec,trans}};
+  if(section==='repartidores')return(<div className="pb-24"><Header title="Repartidores" onBack={()=>setSection(null)}/><div className="px-4 py-3 space-y-2">{db.repartidores.map(r=>(<Card key={r.id}><div className="flex justify-between"><div className="font-bold">{r.nombre}</div><Button size="sm" variant="danger" onClick={()=>{if(!confirm('¿Borrar?'))return;const next={...db,repartidores:db.repartidores.filter(x=>x.id!==r.id)};setDb(next);saveDB(next)}}>Borrar</Button></div></Card>))}<Button className="w-full mt-4" onClick={()=>{const n=prompt('Nombre');if(!n)return;const next={...db,repartidores:[...db.repartidores,{id:uid(),nombre:n,telefono:'',vehiculoId:''}]};setDb(next);saveDB(next)}}>+ Agregar</Button></div></div>);
+  if(section==='vehiculos')return(<div className="pb-24"><Header title="Vehículos" onBack={()=>setSection(null)}/><div className="px-4 py-3 space-y-2">{db.vehiculos.map(v=>(<Card key={v.id}><div className="flex justify-between"><div><div className="font-bold">{v.marca} {v.modelo}</div><div className="text-sm text-slate-500">{v.patente}</div></div><Button size="sm" variant="danger" onClick={()=>{if(!confirm('¿Borrar?'))return;const next={...db,vehiculos:db.vehiculos.filter(x=>x.id!==v.id)};setDb(next);saveDB(next)}}>Borrar</Button></div></Card>))}<Button className="w-full mt-4" onClick={()=>{const marca=prompt('Marca');const modelo=prompt('Modelo');const patente=prompt('Patente');if(!marca||!patente)return;const next={...db,vehiculos:[...db.vehiculos,{id:uid(),marca,modelo:modelo||'',patente,anio:new Date().getFullYear(),estado:'Activo'}]};setDb(next);saveDB(next)}}>+ Agregar</Button></div></div>);
+  if(section==='reporte'){const lista=modoReporte==='dia'?db.pedidos.filter(p=>p.fecha===fechaReporte):modoReporte==='mes'?db.pedidos.filter(p=>(p.fecha||'').startsWith(mesReporte)):db.pedidos.filter(p=>(p.fecha||'').startsWith(anioReporte));const st=calcStats(lista);const anios=[...new Set(db.pedidos.map(p=>(p.fecha||'').slice(0,4)).filter(Boolean))].sort().reverse();const mesesOpts=[];for(let i=0;i<12;i++){const d=new Date();d.setMonth(d.getMonth()-i);const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;mesesOpts.push(ym)}
+    return(<div className="pb-24"><Header title="Reporte de ventas" onBack={()=>setSection(null)}/><div className="px-4 py-4 space-y-3">
+      <div className="flex gap-2"><button onClick={()=>setModoReporte('dia')} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold ${modoReporte==='dia'?'bg-brand-blue text-white':'bg-white border'}`}>Día</button><button onClick={()=>setModoReporte('mes')} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold ${modoReporte==='mes'?'bg-brand-blue text-white':'bg-white border'}`}>Mes</button><button onClick={()=>setModoReporte('anio')} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold ${modoReporte==='anio'?'bg-brand-blue text-white':'bg-white border'}`}>Año</button></div>
+      {modoReporte==='dia'?(<Card className="!p-3"><div className="flex gap-2"><input type="date" value={fechaReporte} onChange={e=>setFechaReporte(e.target.value)} className="flex-1 px-3 py-2 rounded-xl border"/><Button size="sm" variant="ghost" onClick={()=>setFechaReporte(today())}>Hoy</Button></div><div className="font-bold text-brand-blue mt-2">{formatFechaLarga(fechaReporte)}</div></Card>):modoReporte==='mes'?(<Card className="!p-3"><Select label="Mes" value={mesReporte} onChange={e=>setMesReporte(e.target.value)}>{mesesOpts.map(m=><option key={m} value={m}>{formatMes(m)}</option>)}</Select></Card>):(<Card className="!p-3"><Select label="Año" value={anioReporte} onChange={e=>setAnioReporte(e.target.value)}>{[anioReporte,...anios].filter((v,i,a)=>a.indexOf(v)===i).map(a=><option key={a} value={a}>{a}</option>)}</Select></Card>)}
+      <div className="grid grid-cols-2 gap-2"><Card className="!p-3 text-center bg-sky-50"><div className="text-xl font-bold text-brand-blue">{st.vendidos.length}</div><div className="text-[11px]">Entregas</div></Card><Card className="!p-3 text-center bg-emerald-50"><div className="text-lg font-bold text-emerald-600">{formatMoney(st.cobrado)}</div><div className="text-[11px]">Cobrado</div></Card></div>
+      <Card><div className="font-semibold mb-2">Bidones</div><div className="text-sm space-y-1"><div className="flex justify-between"><span>Normal</span><strong>{st.bidN}</strong></div><div className="flex justify-between"><span>Mayorista</span><strong>{st.bidM}</strong></div><div className="flex justify-between"><span>$0</span><strong>{st.bid0}</strong></div><div className="flex justify-between"><span>Dispenser</span><strong>{st.bidD}</strong></div><div className="flex justify-between border-t pt-1"><span>Total</span><strong>{st.bidN+st.bidM+st.bid0+st.bidD}</strong></div></div></Card>
+      <Card><div className="font-semibold mb-2">Plata</div><div className="text-sm space-y-1"><div className="flex justify-between"><span>Efectivo</span><strong>{formatMoney(st.efec)}</strong></div><div className="flex justify-between"><span>Transf.</span><strong>{formatMoney(st.trans)}</strong></div><div className="flex justify-between"><span>Cobrado</span><strong className="text-emerald-600">{formatMoney(st.cobrado)}</strong></div><div className="flex justify-between"><span>Debe</span><strong className="text-red-500">{formatMoney(st.debe)}</strong></div></div><p className="text-[11px] text-slate-400 mt-2">Dispenser y $0 no suman recaudación.</p></Card>
+      {modoReporte==='dia'&&st.vendidos.map(p=>{const cli=db.clientes.find(c=>c.id===p.clienteId);return(<Card key={p.id} className="!p-2.5"><div className="font-medium text-sm">{cli?.nombre}</div><div className="text-[11px] text-slate-500">{p.cantidad} bid · {p.tipoPrecio==='cero'?'$0':p.tipoPrecio==='mayorista'?'may.':'normal'} · {p.formaPago}{esVentaPlata(p)?` · ${formatMoney(p.cantidad*precioDePedido(p,db))}`:''}</div></Card>)})}
+    </div></div>)}
+  if(section==='cierre'){const lista=db.pedidos.filter(p=>p.fecha===fechaCierre&&p.estado!=='Cancelado');const st=calcStats(lista);const transfPend=lista.filter(p=>p.formaPago==='Transferencia'&&!p.transferenciaAcreditada&&p.estado!=='Cancelado');const deudasDia=lista.filter(p=>p.estadoPago==='Debe'&&esVentaPlata(p));
+    return(<div className="pb-24"><Header title="Cierre de caja" onBack={()=>setSection(null)}/><div className="px-4 py-4 space-y-3">
+      <Card className="!p-3"><div className="flex gap-2"><input type="date" value={fechaCierre} onChange={e=>setFechaCierre(e.target.value)} className="flex-1 px-3 py-2 rounded-xl border"/><Button size="sm" variant="ghost" onClick={()=>setFechaCierre(today())}>Hoy</Button></div><div className="font-bold text-brand-blue mt-2">{formatFechaLarga(fechaCierre)}</div></Card>
+      <Card className="bg-emerald-50"><div className="text-sm font-semibold text-emerald-800 mb-2">Efectivo en mano</div><div className="text-2xl font-bold text-emerald-700">{formatMoney(st.efec)}</div></Card>
+      <Card><div className="font-semibold mb-2">Resumen del día</div><div className="text-sm space-y-1"><div className="flex justify-between"><span>Entregas</span><strong>{st.vendidos.length}</strong></div><div className="flex justify-between"><span>Bidones</span><strong>{st.bidN+st.bidM+st.bid0+st.bidD}</strong></div><div className="flex justify-between"><span>Efectivo</span><strong>{formatMoney(st.efec)}</strong></div><div className="flex justify-between"><span>Transferencias</span><strong>{formatMoney(st.trans)}</strong></div><div className="flex justify-between"><span>Cobrado total</span><strong className="text-emerald-600">{formatMoney(st.cobrado)}</strong></div><div className="flex justify-between"><span>Quedó debiendo</span><strong className="text-red-500">{formatMoney(st.debe)}</strong></div></div></Card>
+      {transfPend.length>0&&<Card className="bg-amber-50"><div className="font-semibold text-amber-800 mb-2">Transf. sin acreditar ({transfPend.length})</div>{transfPend.map(p=>{const cli=db.clientes.find(c=>c.id===p.clienteId);return(<div key={p.id} className="flex justify-between items-center py-1.5 border-b border-amber-100 last:border-0"><div><div className="text-sm font-medium">{cli?.nombre}</div><div className="text-[11px] text-slate-500">{formatMoney(p.cantidad*precioDePedido(p,db))}</div></div><Button size="sm" variant="outline" onClick={()=>{const next=acreditarTransferencia(db,p.id);setDb(next);saveDB(next)}}>Acreditar</Button></div>)})}</Card>}
+      {deudasDia.length>0&&<Card className="bg-red-50"><div className="font-semibold text-red-700 mb-2">Deudas del día</div>{deudasDia.map(p=>{const cli=db.clientes.find(c=>c.id===p.clienteId);return(<div key={p.id} className="text-sm py-1">{cli?.nombre}: {formatMoney(p.cantidad*precioDePedido(p,db))}</div>)})}</Card>}
+    </div></div>)}
+  if(section==='envases'){const lista=db.clientes.filter(c=>(c.envasesPendientes||0)>0).sort((a,b)=>(b.envasesPendientes||0)-(a.envasesPendientes||0));
+    return(<div className="pb-24"><Header title="Deben envases" onBack={()=>setSection(null)}/><div className="px-4 py-3 space-y-2">
+      <Card className="bg-orange-50 !p-3 text-center"><div className="text-2xl font-bold text-orange-600">{lista.reduce((s,c)=>s+(c.envasesPendientes||0),0)}</div><div className="text-xs text-slate-500">Envases pendientes · {lista.length} clientes</div></Card>
+      {lista.length===0?<p className="text-center text-slate-400 py-8">Nadie debe envases</p>:lista.map(c=>(<Card key={c.id} className="!p-3"><div className="flex justify-between items-center"><div><div className="font-semibold">{c.nombre}</div><div className="text-[11px] text-slate-500">{c.barrio||c.direccion||''}</div></div><div className="text-orange-600 font-bold">{c.envasesPendientes} env.</div></div></Card>))}
+    </div></div>)}
+  if(section==='deudas'){const conDeuda=db.clientes.filter(c=>(c.deuda||0)>0).sort((a,b)=>(b.deuda||0)-(a.deuda||0));const transfPend=db.pedidos.filter(p=>p.formaPago==='Transferencia'&&!p.transferenciaAcreditada&&p.estado!=='Cancelado').sort((a,b)=>b.fecha.localeCompare(a.fecha));
+    return(<div className="pb-24"><Header title="Deudas y transferencias" onBack={()=>setSection(null)}/><div className="px-4 py-3 space-y-4">
+      <div><h3 className="font-bold mb-2 text-red-600">Clientes que deben</h3>
+        {conDeuda.length===0?<p className="text-sm text-slate-400 mb-2">Nadie debe plata</p>:conDeuda.map(c=>(<Card key={c.id} className="!p-3 mb-2"><div className="flex justify-between"><div><div className="font-semibold">{c.nombre}</div><div className="text-[11px] text-slate-500">{c.barrio||''}</div></div><div className="text-red-600 font-bold">{formatMoney(c.deuda)}</div></div></Card>))}
+      </div>
+      <div><h3 className="font-bold mb-2 text-amber-600">Transferencias sin confirmar</h3>
+        {transfPend.length===0?<p className="text-sm text-slate-400">Ninguna pendiente</p>:transfPend.map(p=>{const cli=db.clientes.find(c=>c.id===p.clienteId);return(<Card key={p.id} className="!p-3 mb-2"><div className="flex justify-between items-center gap-2"><div className="min-w-0"><div className="font-semibold truncate">{cli?.nombre||'—'}</div><div className="text-[11px] text-slate-500">{p.fecha} · {p.cantidad} bid · {formatMoney(p.cantidad*precioDePedido(p,db))}</div></div><Button size="sm" variant="outline" onClick={()=>{const next=acreditarTransferencia(db,p.id);setDb(next);saveDB(next)}}>OK</Button></div></Card>)})}
+      </div>
+    </div></div>)}
+  if(section==='barrios'){const usados=[...new Set(db.clientes.map(c=>(c.barrio||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));const orden=db.barrioOrden||[];const mover=(i,dir)=>{const arr=[...orden];const j=i+dir;if(j<0||j>=arr.length)return;const t=arr[i];arr[i]=arr[j];arr[j]=t;const next={...db,barrioOrden:arr};setDb(next);saveDB(next)};
+    return(<div className="pb-24"><Header title="Orden de barrios" onBack={()=>setSection(null)}/><div className="px-4 py-3 space-y-2">
+      <p className="text-sm text-slate-500">El 1º barrio sale primero en el reparto cuando tocás “Ordenar por barrio”.</p>
+      {orden.length===0&&<p className="text-sm text-slate-400">Agregá barrios a la lista.</p>}
+      {orden.map((b,i)=>(<Card key={b+i} className="!p-3 flex items-center gap-2"><div className="w-7 h-7 rounded-full bg-brand-blue text-white text-xs font-bold flex items-center justify-center">{i+1}</div><div className="flex-1 font-medium">{b}</div><button className="px-2 py-1 text-slate-500" onClick={()=>mover(i,-1)}>↑</button><button className="px-2 py-1 text-slate-500" onClick={()=>mover(i,1)}>↓</button><button className="text-red-500 text-xs font-semibold" onClick={()=>{const next={...db,barrioOrden:orden.filter((_,x)=>x!==i)};setDb(next);saveDB(next)}}>Quitar</button></Card>))}
+      <h3 className="font-bold pt-2">Barrios de clientes</h3>
+      {usados.filter(b=>!orden.some(o=>o.toLowerCase()===b.toLowerCase())).map(b=>(<button key={b} className="w-full text-left px-3 py-2 bg-white rounded-xl border mb-1" onClick={()=>{const next={...db,barrioOrden:[...orden,b]};setDb(next);saveDB(next)}}>+ {b}</button>))}
+      <Button className="w-full mt-2" variant="outline" onClick={()=>{const n=prompt('Nombre del barrio');if(!n)return;const next={...db,barrioOrden:[...orden,n.trim()]};setDb(next);saveDB(next)}}>+ Agregar barrio</Button>
+    </div></div>)}
+  if(section==='precios')return(<div className="pb-24"><Header title="Precios" onBack={()=>setSection(null)}/><div className="px-4 py-4">
+    <Input label="Bidón normal ($)" type="number" min="0" value={db.precios?.bidon??2500} onChange={e=>{const next={...db,precios:{...db.precios,bidon:Number(e.target.value)}};setDb(next);saveDB(next)}}/>
+    <Input label="Bidón mayorista ($)" type="number" min="0" value={db.precios?.bidonMayorista??2000} onChange={e=>{const next={...db,precios:{...db.precios,bidonMayorista:Number(e.target.value)}};setDb(next);saveDB(next)}}/>
+    <p className="text-xs text-slate-500 -mt-2 mb-3">En cada pedido: normal, mayorista o <strong>$0 sin cargo</strong>.</p>
+    <Input label="Alquiler dispenser ($)" type="number" min="0" value={db.precios?.alquilerBase??15000} onChange={e=>{const next={...db,precios:{...db.precios,alquilerBase:Number(e.target.value)}};setDb(next);saveDB(next)}}/>
+  </div></div>);
+  const importarBackup=e=>{const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const data=JSON.parse(ev.target.result);if(!data||typeof data!=='object')throw new Error('Formato inválido');if(!confirm('¿Reemplazar todos los datos actuales por el backup?'))return;const next={...defaultData,...data};setDb(next);saveDB(next);alert('Backup importado correctamente');setSection(null)}catch(err){alert('No se pudo leer el archivo')}};reader.readAsText(file);e.target.value=''};
+  return(<div className="pb-24"><Header title="Más opciones"/><div className="px-4 py-3 space-y-2">
+    <Card onClick={()=>setSection('cierre')} className="flex items-center gap-3"><Icon name="dollar" size={22} className="text-emerald-600"/><span className="font-medium">Cierre de caja</span></Card>
+    <Card onClick={()=>setSection('reporte')} className="flex items-center gap-3"><Icon name="package" size={22} className="text-brand-orange"/><span className="font-medium">Reporte de ventas</span></Card>
+    <Card onClick={()=>setSection('envases')} className="flex items-center gap-3"><Icon name="package" size={22} className="text-orange-600"/><span className="font-medium">Deben envases</span></Card>
+    <Card onClick={()=>setSection('deudas')} className="flex items-center gap-3"><Icon name="dollar" size={22} className="text-red-500"/><span className="font-medium">Deudas y transferencias</span></Card>
+    <Card onClick={()=>setSection('barrios')} className="flex items-center gap-3"><Icon name="map" size={22} className="text-brand-blue"/><span className="font-medium">Orden de barrios</span></Card>
+    <Card onClick={()=>setSection('repartidores')} className="flex items-center gap-3"><Icon name="users" size={22} className="text-brand-blue"/><span className="font-medium">Repartidores</span></Card>
+    <Card onClick={()=>setSection('vehiculos')} className="flex items-center gap-3"><Icon name="truck" size={22} className="text-brand-blue"/><span className="font-medium">Vehículos</span></Card>
+    <Card onClick={()=>setSection('precios')} className="flex items-center gap-3"><Icon name="dollar" size={22} className="text-brand-blue"/><span className="font-medium">Precios</span></Card>
+    <Card onClick={()=>{if(confirm('¿Exportar backup?')){const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`backup-${today()}.json`;a.click()}}} className="flex items-center gap-3"><Icon name="package" size={22} className="text-brand-blue"/><span className="font-medium">Exportar backup</span></Card>
+    <Card onClick={()=>importRef.current?.click()} className="flex items-center gap-3"><Icon name="package" size={22} className="text-brand-blue"/><span className="font-medium">Importar backup</span></Card>
+    <input ref={importRef} type="file" accept="application/json,.json" className="hidden" onChange={importarBackup}/>
+  </div></div>);
+}
+function App(){
+  const[splash,setSplash]=useState(true);const[db,setDb]=useState(loadDB);const[tab,setTab]=useState('inicio');
+  const[fechaReparto,setFechaReparto]=useState(today());const[showNuevoPedido,setShowNuevoPedido]=useState(false);
+  const[showNuevoCliente,setShowNuevoCliente]=useState(false);const[clienteSeleccionado,setClienteSeleccionado]=useState(null);
+  const[clienteParaPedido,setClienteParaPedido]=useState(null);const[pedidoEditar,setPedidoEditar]=useState(null);const[showSearch,setShowSearch]=useState(false);
+  useEffect(()=>{saveDB(db)},[db]);
+  if(splash)return <Splash onDone={()=>setSplash(false)}/>;
+  return(<div className="min-h-screen max-w-lg mx-auto bg-slate-50 relative">
+    {tab==='inicio'&&!clienteSeleccionado&&<Dashboard db={db} setTab={setTab} onNewPedido={()=>{setClienteParaPedido(null);setPedidoEditar(null);setShowNuevoPedido(true)}} onSearch={()=>setShowSearch(true)}/>}
+    {tab==='repartos'&&!clienteSeleccionado&&<RepartosScreen db={db} setDb={setDb} fecha={fechaReparto} setFecha={setFechaReparto} onEditPedido={p=>{setPedidoEditar(p);setShowNuevoPedido(true)}}/>}
+    {tab==='clientes'&&!clienteSeleccionado&&<ClientesScreen db={db} onSelectCliente={setClienteSeleccionado} onNewCliente={()=>setShowNuevoCliente(true)}/>}
+    {tab==='dispensers'&&!clienteSeleccionado&&<DispensersScreen db={db} setDb={setDb}/>}
+    {tab==='mas'&&!clienteSeleccionado&&<MasScreen db={db} setDb={setDb}/>}
+    {clienteSeleccionado&&<ClienteDetail cliente={clienteSeleccionado} db={db} setDb={setDb} onBack={()=>setClienteSeleccionado(null)} onEdit={()=>setShowNuevoCliente(true)} onNewPedido={c=>{setClienteParaPedido(c);setPedidoEditar(null);setShowNuevoPedido(true)}} onEditPedido={p=>{setPedidoEditar(p);setClienteParaPedido(null);setShowNuevoPedido(true)}}/>}
+    {showNuevoPedido&&<NuevoPedidoModal db={db} setDb={setDb} onClose={()=>{setShowNuevoPedido(false);setPedidoEditar(null);setClienteParaPedido(null)}} clientePreseleccionado={clienteParaPedido} pedidoEditar={pedidoEditar}/>}
+    {showNuevoCliente&&<ClienteFormModal db={db} setDb={setDb} clienteEditar={clienteSeleccionado} onClose={cli=>{setShowNuevoCliente(false);if(cli&&clienteSeleccionado)setClienteSeleccionado(cli)}}/>}
+    {showSearch&&(<div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center"><div className="bg-white w-full rounded-t-3xl p-4 max-h-[80vh] overflow-y-auto">
+      <div className="flex justify-between mb-3"><h2 className="font-bold">Buscar</h2><button onClick={()=>setShowSearch(false)}><Icon name="x" size={22}/></button></div>
+      <Input autoFocus placeholder="Nombre" onChange={e=>{window.__sq=e.target.value.toLowerCase()}}/>
+      {db.clientes.filter(c=>{const t=window.__sq||'';return!t||(c.nombre||'').toLowerCase().includes(t)}).slice(0,15).map(c=>(<button key={c.id} className="w-full text-left px-3 py-2 border-b" onClick={()=>{setClienteSeleccionado(c);setShowSearch(false);setTab('clientes')}}><div className="font-medium">{c.nombre}</div></button>))}
+    </div></div>)}
+    {!clienteSeleccionado&&<BottomNav tab={tab} setTab={setTab}/>}
+  </div>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}))}
+</script>
+</body>
+</html>
