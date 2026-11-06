@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="theme-color" content="#0284c7"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="AguasDelPaso"/>
+<meta name="application-name" content="Aguas Del Paso"/>
+<title>Aguas Del Paso</title>
+<link rel="manifest" href="./manifest.json"/>
+<link rel="icon" href="./favicon.ico"/>
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png"/>
+<link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png"/>
+<link rel="apple-touch-icon" href="./apple-touch-icon.png"/>
+<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png"/>
+<script src="./tailwind.js" onerror="this.onerror=null;this.src='https://cdn.tailwindcss.com'"></script>
+<script>tailwind.config={theme:{extend:{colors:{brand:{blue:'#0284c7','blue-dark':'#0369a1',orange:'#f97316','orange-dark':'#ea580c'}}}}}</script>
+<style>
+*{ -webkit-tap-highlight-color:transparent } body{overscroll-behavior:none}
+.safe-bottom{padding-bottom:env(safe-area-inset-bottom,0)}
+.splash{animation:fadeOut .5s ease-in-out 2.2s forwards}
+@keyframes fadeOut{to{opacity:0;visibility:hidden}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes popIn{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes pulseSoft{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+.status-pendiente{background:#fef3c7;color:#92400e}
+.status-en-reparto{background:#dbeafe;color:#1e40af}
+.status-entregado{background:#d1fae5;color:#065f46}
+.status-cancelado{background:#fee2e2;color:#991b1b}
+.card-live{animation:fadeUp .35s ease both;transition:transform .25s ease,box-shadow .25s ease,opacity .25s ease}
+.drop-line{height:6px;border-radius:99px;background:linear-gradient(90deg,#0284c7,#f97316);margin:2px 0 10px;animation:pulseSoft .8s ease-in-out infinite}
+.handle-grip{animation:pulseSoft 1.8s ease-in-out infinite}
+.chip{display:inline-flex;align-items:center;justify-content:center;text-align:center;line-height:1.15}
+.stat-box{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+<div id="root"><div id="boot" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;font-family:system-ui,sans-serif;background:linear-gradient(180deg,#0ea5e9,#0284c7);color:#fff"><div style="font-size:20px;font-weight:600;margin-bottom:8px">Aguas Del Paso</div><div style="opacity:.9;font-size:14px">Cargando…</div><div id="bootErr" style="display:none;margin-top:20px;max-width:320px;background:rgba(0,0,0,.25);padding:14px;border-radius:12px;font-size:13px;line-height:1.4"></div></div></div>
+<script>
+window.__adpBoot=setTimeout(function(){
+  var e=document.getElementById('bootErr');
+  if(!e||document.querySelector('[data-adp-ready]'))return;
+  e.style.display='block';
+  e.innerHTML='No arrancó la app. Suele ser caché vieja.<br><br>1) Abrí en Chrome<br>2) Menú ⋮ → Configuración del sitio → Borrar datos<br>3) O tocá abajo y recargá.';
+  var b=document.createElement('button');
+  b.textContent='Borrar caché e intentar';
+  b.style.cssText='margin-top:12px;padding:10px 16px;border:0;border-radius:10px;background:#fff;color:#0284c7;font-weight:600';
+  b.onclick=function(){
+    var p=[];
+    if(navigator.serviceWorker){p.push(navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister()}))}))}
+    if(window.caches){p.push(caches.keys().then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k)}))}))}
+    Promise.all(p).then(function(){location.reload(true)}).catch(function(){location.reload()});
+  };
+  e.appendChild(b);
+},12000);
+window.addEventListener('error',function(ev){var e=document.getElementById('bootErr');if(e){e.style.display='block';e.textContent='Error: '+(ev.message||'script')}});
+</script>
+<script src="./react.production.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js'"></script>
+<script src="./react-dom.production.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js'"></script>
+<script>
+(() => {
+  const { useState, useEffect, useMemo, useRef } = React;
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+  const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" }).format(/* @__PURE__ */ new Date());
+  const mesAR = () => today().slice(0, 7);
+  const shiftMes = (ym, delta) => {
+    const [y, m] = (ym || mesAR()).split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+  const MESES_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  const formatFechaLarga = (d) => {
+    if (!d) return "";
+    const [y, m, day] = d.split("-");
+    return `${Number(day)} de ${MESES_ES[Number(m) - 1]} de ${y}`;
+  };
+  const formatMes = (ym) => {
+    if (!ym) return "";
+    const [y, m] = ym.split("-");
+    return `${MESES_ES[Number(m) - 1] || m} ${y}`;
+  };
+  const mesesCercanos = () => {
+    const out = [];
+    const now = /* @__PURE__ */ new Date();
+    for (let i = -6; i <= 2; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+    return out;
+  };
+  const formatMoney = (n) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n || 0);
+  const esVentaPlata = (p) => p.formaPago !== "Dispenser" && p.tipoPrecio !== "cero";
+  const precioDePedido = (p, db) => {
+    if (p?.tipoPrecio === "cero" || p?.tipoPrecio === "gratis") return 0;
+    if (p?.tipoPrecio === "mayorista") return Number(p.precioUnitario ?? db.precios?.bidonMayorista ?? 0);
+    if (p?.tipoPrecio === "mayorista2") return Number(p.precioUnitario ?? db.precios?.bidonMayorista2 ?? 0);
+    return Number(p.precioUnitario ?? db.precios?.bidon ?? 2500);
+  };
+  function abrirWhatsAppBusiness(telefono, texto) {
+    let n = String(telefono || "").replace(/\D/g, "");
+    if (!n) {
+      alert("Este cliente no tiene tel\xE9fono");
+      return;
+    }
+    if (n.startsWith("0")) n = n.slice(1);
+    if (n.startsWith("15")) n = n.slice(2);
+    if (!n.startsWith("54")) n = "54" + n;
+    const msg = encodeURIComponent(texto);
+    const intent = `intent://send/?phone=${n}&text=${msg}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
+    window.location.href = intent;
+  }
+  const etiquetaPrecio = (t) => t === "cero" ? "$0" : t === "mayorista" ? "May. 1" : t === "mayorista2" ? "May. 2" : "Normal";
+  function moverStock(db, tipo, cant, nota, clienteId) {
+    const n = Number(cant) || 0;
+    if (!n) return db;
+    const inv = { envases: Number(db.inventario?.envases) || 0, dispenserNatural: Number(db.inventario?.dispenserNatural) || 0 };
+    if (tipo === "envase") inv.envases += n;
+    else inv.dispenserNatural += n;
+    const mov = { id: uid(), fecha: today(), tipo, cantidad: n, nota: nota || "", clienteId: clienteId || "" };
+    return { ...db, inventario: inv, movimientosInv: [mov, ...db.movimientosInv || []].slice(0, 200) };
+  }
+  const APP_VERSION = "3.4";
+
+  function diasDesde(iso) {
+    if (!iso) return null;
+    const [y, m, d] = String(iso).split("-").map(Number);
+    if (!y) return null;
+    const a = new Date(y, m - 1, d);
+    const hoy = today().split("-").map(Number);
+    const b = new Date(hoy[0], hoy[1] - 1, hoy[2]);
+    return Math.floor((b - a) / 86400000);
+  }
+  function ultimaFechaPedidoCliente(db, clienteId) {
+    let max = "";
+    (db.pedidos || []).forEach((p) => {
+      if (p.clienteId !== clienteId || p.estado === "Cancelado" || !p.fecha) return;
+      if (p.fecha > max) max = p.fecha;
+    });
+    return max || null;
+  }
+  function fechaDeudaMasAntigua(db, clienteId) {
+    let min = null;
+    (db.pedidos || []).forEach((p) => {
+      if (p.clienteId !== clienteId || p.estado === "Cancelado" || !p.fecha) return;
+      const impago = p.estadoPago === "Debe" || p.estadoPago === "Pendiente" || p.formaPago === "Transferencia" && !p.transferenciaAcreditada;
+      if (!impago) return;
+      if (!min || p.fecha < min) min = p.fecha;
+    });
+    return min;
+  }
+
+  const DB_KEY = "aguas_del_paso_v1";
+  const defaultData = { repartidores: [{ id: "r1", nombre: "Juan P\xE9rez", telefono: "", vehiculoId: "v1" }], vehiculos: [{ id: "v1", marca: "Fiat", modelo: "Fiorino", patente: "ABC 123", anio: 2019, estado: "Activo" }], clientes: [], pedidos: [], dispensers: [], alquileres: [], barrioOrden: [], gastos: [], listaEspera: [], recorridos: [], notasDia: {}, stockDia: {}, inventario: { envases: 0, dispenserNatural: 0 }, movimientosInv: [], precios: { bidon: 2500, bidonMayorista: 2e3, bidonMayorista2: 1800, alquilerBase: 15e3, envase: 8e3, dispenserNatural: 45e3 } };
+  const DIAS_CORTOS = ["Dom", "Lun", "Mar", "Mi\xE9", "Jue", "Vie", "S\xE1b"];
+  const diaSemanaISO = (iso) => {
+    const [y, m, d] = (iso || today()).split("-").map(Number);
+    return new Date(y, m - 1, d).getDay();
+  };
+  function cargarRecorridoEnFecha(db, rec, fecha) {
+    const ya = new Set((db.pedidos || []).filter((p) => p.fecha === fecha && p.estado !== "Cancelado").map((p) => p.clienteId));
+    let pri = (db.pedidos || []).filter((p) => p.fecha === fecha).length;
+    const extra = [];
+    (rec.clienteIds || []).forEach((cid) => {
+      if (ya.has(cid)) return;
+      const cli = (db.clientes || []).find((c) => c.id === cid);
+      if (!cli) return;
+      pri += 1;
+      const disp = findDispenserForCliente(db, cli);
+      extra.push({ id: uid(), fecha, clienteId: cid, cantidad: Number(cli.cantidadHabitual) || 2, formaPago: disp ? "Dispenser" : "Efectivo", estado: "Pendiente", tipoPrecio: "normal", estadoPago: disp ? "Incluido" : "Pagado", prioridad: pri, recorridoId: rec.id, transferenciaAcreditada: false });
+    });
+    return { ...db, pedidos: [...db.pedidos || [], ...extra], _cargados: extra.length };
+  }
+  const sortNombre = (a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es", { sensitivity: "base" });
+  const rangoBarrio = (db, barrio) => {
+    const list = db.barrioOrden || [];
+    const i = list.findIndex((b) => (b || "").toLowerCase() === (barrio || "").toLowerCase());
+    return i < 0 ? 999 : i;
+  };
+  const estadoAlquiler = (a) => {
+    if (!a) return "Debe";
+    if (a.estadoPago === "Parcial" || a.montoPagado > 0 && !a.pagado && a.estadoPago !== "Pagado") return "Parcial";
+    if (a.pagado || a.estadoPago === "Pagado") return "Pagado";
+    return "Debe";
+  };
+  const ultimoMesPagado = (db, disp) => {
+    const pags = (db.alquileres || []).filter((a) => a.dispenserClienteId === disp.id && estadoAlquiler(a) === "Pagado").sort((a, b) => b.mes.localeCompare(a.mes));
+    return pags[0] || null;
+  };
+  function loadDB() {
+    try {
+      const raw = localStorage.getItem(DB_KEY);
+      if (!raw) return structuredClone(defaultData);
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return structuredClone(defaultData);
+      const n = pasarPendientes({ ...defaultData, ...parsed, pedidos: Array.isArray(parsed.pedidos) ? parsed.pedidos : [], clientes: Array.isArray(parsed.clientes) ? parsed.clientes : [] });
+      const { _movidos, ...clean } = n;
+      return clean;
+    } catch (e) {
+      console.warn("DB corrupt, reset soft", e);
+      try {
+        return structuredClone(defaultData);
+      } catch (e2) {
+        return defaultData;
+      }
+    }
+  }
+  function diaSiguiente(iso) {
+    const [y, m, d] = (iso || today()).split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + 1);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  }
+  function pasarPendientes(db, desde, hacia) {
+    const dest = hacia || today();
+    let movidos = 0;
+    const pedidos = (db.pedidos || []).map((p) => {
+      const abierto = p.estado === "Pendiente" || p.estado === "En reparto";
+      if (!abierto || !p.fecha) return p;
+      const coincide = desde ? p.fecha === desde : p.fecha < dest;
+      if (!coincide || p.fecha === dest) return p;
+      movidos++;
+      return { ...p, fecha: dest, estado: "Pendiente", turno: p.turno || "manana" };
+    });
+    return { ...db, pedidos, _movidos: movidos };
+  }
+  function saveDB(data) {
+    localStorage.setItem(DB_KEY, JSON.stringify(data));
+  }
+  function deudaDesdePedidos(db, clienteId) {
+    return (db.pedidos || []).filter((p) => p.clienteId === clienteId && p.formaPago !== "Dispenser" && p.tipoPrecio !== "cero" && (p.estadoPago === "Debe" || p.estadoPago === "Pendiente" || p.formaPago === "Transferencia" && !p.transferenciaAcreditada)).reduce((s, p) => s + p.cantidad * precioDePedido(p, db), 0);
+  }
+  function actualizarDeudaPorPedidos(db, clientes, pedidos) {
+    return clientes.map((c) => c.deuda === void 0 && !(pedidos || []).some((p) => p.clienteId === c.id) ? c : { ...c, deuda: deudaDesdePedidos({ ...db, pedidos }, c.id) });
+  }
+  function acreditarTransferencia(db, pedidoId) {
+    const p0 = (db.pedidos || []).find((x) => x.id === pedidoId);
+    if (!p0) return db;
+    const monto = p0.cantidad * precioDePedido(p0, db);
+    const restaba = p0.estadoPago === "Debe" || p0.estadoPago === "Pendiente" || !p0.transferenciaAcreditada;
+    const pedidos = db.pedidos.map((x) => x.id === pedidoId ? { ...x, transferenciaAcreditada: true, estadoPago: "Pagado" } : x);
+    const clientes = actualizarDeudaPorPedidos(db, db.clientes, pedidos);
+    return { ...db, pedidos, clientes };
+  }
+  function eliminarPedido(db, pedidoId) {
+    const p0 = (db.pedidos || []).find((x) => x.id === pedidoId);
+    if (!p0) return db;
+    const monto = p0.cantidad * precioDePedido(p0, db);
+    const restaba = p0.estadoPago === "Debe" || p0.estadoPago === "Pendiente" || p0.formaPago === "Transferencia" && !p0.transferenciaAcreditada;
+    const pedidos = db.pedidos.filter((x) => x.id !== pedidoId);
+    let alquileres = db.alquileres || [];
+    if (p0.formaPago === "Dispenser" && p0.estado === "Entregado") {
+      const cli = (db.clientes || []).find((c) => c.id === p0.clienteId);
+      const disp = findDispenserForCliente(db, cli);
+      if (disp) {
+        const mes = (p0.fecha || "").slice(0, 7);
+        alquileres = alquileres.map((a) => a.dispenserClienteId === disp.id && a.mes === mes ? { ...a, bidonesConsumidos: Math.max(0, (a.bidonesConsumidos || 0) - (Number(p0.cantidad) || 0)) } : a);
+      }
+    }
+    const clientes = actualizarDeudaPorPedidos(db, db.clientes, pedidos);
+    return { ...db, pedidos, clientes, alquileres };
+  }
+  function aplicarEntrega(db, pedidoId, { estadoPago, formaPago, acreditada, envasesCant }) {
+    const p0 = (db.pedidos || []).find((x) => x.id === pedidoId);
+    if (!p0) return db;
+    const yaEntregado = p0.estado === "Entregado";
+    const maxPri = Math.max(0, ...(db.pedidos || []).filter((p) => p.fecha === p0.fecha).map((p) => Number(p.prioridad) || 0));
+    const env = Math.max(0, Number(p0.comproEnvase) || 0);
+    const dn = Math.max(0, Number(p0.comproDN) || 0);
+    const pedidos = db.pedidos.map((x) => x.id !== pedidoId ? x : { ...x, estado: "Entregado", formaPago, estadoPago, transferenciaAcreditada: formaPago === "Transferencia" ? !!acreditada : false, prioridad: yaEntregado ? x.prioridad : maxPri + 1, precioEnvase: (x.precioEnvase ?? db.precios?.envase) || 0, precioDN: (x.precioDN ?? db.precios?.dispenserNatural) || 0 });
+    let alquileres = db.alquileres || [];
+    if (!yaEntregado) alquileres = aplicarConsumoDispenser({ ...db, pedidos }, { ...p0, estado: "Entregado", formaPago });
+    let clientes = actualizarDeudaPorPedidos(db, db.clientes, pedidos);
+    const extra = Math.max(0, Number(envasesCant) || 0);
+    if (extra > 0) {
+      clientes = clientes.map((c) => c.id !== p0.clienteId ? c : { ...c, envasesPendientes: (Number(c.envasesPendientes) || 0) + extra });
+    }
+    let next = { ...db, pedidos, clientes, alquileres };
+    if (!yaEntregado && extra > 0) next = moverStock(next, "envase", -extra, "Prestado", p0.clienteId);
+    if (!yaEntregado && env > 0) next = moverStock(next, "envase", -env, "Vendido (incluye recarga)", p0.clienteId);
+    if (!yaEntregado && dn > 0) next = moverStock(next, "dispenserNatural", -dn, "Vendido (sin recarga)", p0.clienteId);
+    return next;
+  }
+  function findDispenserForCliente(db, cliente) {
+    if (!cliente) return null;
+    return (db.dispensers || []).find((d) => d.clienteId === cliente.id || d.nombre && cliente.nombre && d.nombre.toLowerCase() === cliente.nombre.toLowerCase()) || null;
+  }
+  function consumoMesDispenser(db, disp, fechaStr) {
+    if (!disp) return null;
+    const mes = (fechaStr || today()).slice(0, 7);
+    const alq = (db.alquileres || []).find((a) => a.dispenserClienteId === disp.id && a.mes === mes);
+    const incluidos = alq?.bidonesIncluidos ?? disp.bidonesIncluidos ?? 10;
+    const consumidos = alq?.bidonesConsumidos || 0;
+    return { mes, incluidos, consumidos, restantes: Math.max(0, incluidos - consumidos) };
+  }
+  function aplicarConsumoDispenser(db, pedido) {
+    if (!pedido || pedido.formaPago !== "Dispenser" || pedido.estado !== "Entregado") return db.alquileres || [];
+    const cli = (db.clientes || []).find((c) => c.id === pedido.clienteId);
+    const disp = findDispenserForCliente(db, cli);
+    if (!disp) return db.alquileres || [];
+    let alquileres = [...db.alquileres || []];
+    const mes = (pedido.fecha || today()).slice(0, 7);
+    const existente = alquileres.find((a) => a.dispenserClienteId === disp.id && a.mes === mes);
+    const cant = Number(pedido.cantidad) || 0;
+    if (existente) {
+      alquileres = alquileres.map((a) => a.id === existente.id ? { ...a, bidonesConsumidos: (a.bidonesConsumidos || 0) + cant } : a);
+    } else {
+      alquileres.push({ id: uid(), dispenserClienteId: disp.id, mes, monto: disp.precioMensual || 15e3, bidonesIncluidos: disp.bidonesIncluidos ?? 10, bidonesConsumidos: cant, pagado: false, fechaPago: "", formaPago: "", observaciones: "" });
+    }
+    return alquileres;
+  }
+  const Icon = ({ name, size = 20, className = "" }) => {
+    const s = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", className };
+    const paths = { home: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }), /* @__PURE__ */ React.createElement("polyline", { points: "9 22 9 12 15 12 15 22" })), truck: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "1", y: "3", width: "15", height: "13" }), /* @__PURE__ */ React.createElement("polygon", { points: "16 8 20 8 23 11 23 16 16 16 16 8" }), /* @__PURE__ */ React.createElement("circle", { cx: "5.5", cy: "18.5", r: "2.5" }), /* @__PURE__ */ React.createElement("circle", { cx: "18.5", cy: "18.5", r: "2.5" })), users: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" }), /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M23 21v-2a4 4 0 0 0-3-3.87" }), /* @__PURE__ */ React.createElement("path", { d: "M16 3.13a4 4 0 0 1 0 7.75" })), droplet: /* @__PURE__ */ React.createElement("path", { d: "M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" }), more: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "19", cy: "12", r: "1" }), /* @__PURE__ */ React.createElement("circle", { cx: "5", cy: "12", r: "1" })), plus: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "5", x2: "12", y2: "19" }), /* @__PURE__ */ React.createElement("line", { x1: "5", y1: "12", x2: "19", y2: "12" })), search: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "11", cy: "11", r: "8" }), /* @__PURE__ */ React.createElement("line", { x1: "21", y1: "21", x2: "16.65", y2: "16.65" })), x: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "18", y1: "6", x2: "6", y2: "18" }), /* @__PURE__ */ React.createElement("line", { x1: "6", y1: "6", x2: "18", y2: "18" })), edit: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" }), /* @__PURE__ */ React.createElement("path", { d: "M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" })), phone: /* @__PURE__ */ React.createElement("path", { d: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.92.3 1.82.52 2.69a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.87.22 1.77.4 2.69.52A2 2 0 0 1 22 16.92z" }), map: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("polygon", { points: "1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" }), /* @__PURE__ */ React.createElement("line", { x1: "8", y1: "2", x2: "8", y2: "18" }), /* @__PURE__ */ React.createElement("line", { x1: "16", y1: "6", x2: "16", y2: "22" })), package: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" }), /* @__PURE__ */ React.createElement("polyline", { points: "3.27 6.96 12 12.01 20.73 6.96" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "22.08", x2: "12", y2: "12" })), dollar: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "1", x2: "12", y2: "23" }), /* @__PURE__ */ React.createElement("path", { d: "M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" })) };
+    return /* @__PURE__ */ React.createElement("svg", { ...s }, paths[name] || null);
+  };
+  const Logo = ({ size = "md", className = "" }) => {
+    const sizes = { sm: "w-10 h-10", md: "w-16 h-16", xl: "w-28 h-28" };
+    return /* @__PURE__ */ React.createElement("img", { src: "logo.jpg", alt: "Logo", className: `${sizes[size]} rounded-full object-cover ${className}` });
+  };
+  const Card = ({ children, className = "", onClick, ...rest }) => /* @__PURE__ */ React.createElement("div", { onClick, className: `card-live bg-white rounded-2xl shadow-sm border border-slate-100 p-4 ${onClick ? "cursor-pointer" : ""} ${className}`, ...rest }, children);
+  const Badge = ({ status }) => {
+    const map = { "Pendiente": "status-pendiente", "En reparto": "status-en-reparto", "Entregado": "status-entregado", "Cancelado": "status-cancelado" };
+    return /* @__PURE__ */ React.createElement("span", { className: `chip px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${map[status] || "bg-slate-100"}` }, status);
+  };
+  const Button = ({ children, variant = "primary", className = "", onClick, disabled, size = "md" }) => {
+    const base = "font-semibold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50";
+    const sizes = { sm: "px-3 py-2 text-sm", md: "px-4 py-3 text-base" };
+    const variants = { primary: "bg-brand-blue text-white shadow-md", orange: "bg-brand-orange text-white shadow-md", outline: "border-2 border-brand-blue text-brand-blue bg-white", ghost: "text-slate-600 bg-slate-100", danger: "bg-red-500 text-white" };
+    return /* @__PURE__ */ React.createElement("button", { onClick, disabled, className: `${base} ${sizes[size]} ${variants[variant]} ${className}` }, children);
+  };
+  const Input = ({ label, ...props }) => /* @__PURE__ */ React.createElement("div", { className: "mb-3" }, label && /* @__PURE__ */ React.createElement("label", { className: "block text-sm font-medium text-slate-600 mb-1" }, label), /* @__PURE__ */ React.createElement("input", { className: "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-base bg-white", ...props }));
+  const Select = ({ label, children, ...props }) => /* @__PURE__ */ React.createElement("div", { className: "mb-3" }, label && /* @__PURE__ */ React.createElement("label", { className: "block text-sm font-medium text-slate-600 mb-1" }, label), /* @__PURE__ */ React.createElement("select", { className: "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-base bg-white", ...props }, children));
+  const Textarea = ({ label, ...props }) => /* @__PURE__ */ React.createElement("div", { className: "mb-3" }, label && /* @__PURE__ */ React.createElement("label", { className: "block text-sm font-medium text-slate-600 mb-1" }, label), /* @__PURE__ */ React.createElement("textarea", { className: "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-base bg-white min-h-[80px]", ...props }));
+  const Header = ({ title, onBack, right }) => /* @__PURE__ */ React.createElement("div", { className: "bg-brand-blue text-white px-4 py-4 flex items-center gap-3 sticky top-0 z-30 shadow-md" }, onBack && /* @__PURE__ */ React.createElement("button", { onClick: onBack, className: "p-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 22 })), /* @__PURE__ */ React.createElement("h1", { className: "text-lg font-bold flex-1" }, title), right);
+  const BottomNav = ({ tab, setTab }) => {
+    const items = [{ id: "inicio", label: "Inicio", icon: "home" }, { id: "repartos", label: "Repartos", icon: "truck" }, { id: "clientes", label: "Clientes", icon: "users" }, { id: "dispensers", label: "Dispensers", icon: "droplet" }, { id: "mas", label: "M\xE1s", icon: "more" }];
+    return /* @__PURE__ */ React.createElement("nav", { className: "fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 safe-bottom z-40" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-around items-center h-16 max-w-lg mx-auto" }, items.map((item) => /* @__PURE__ */ React.createElement("button", { key: item.id, onClick: () => setTab(item.id), className: `flex flex-col items-center justify-center flex-1 h-full gap-0.5 ${tab === item.id ? "text-brand-blue scale-110" : "text-slate-400"}` }, /* @__PURE__ */ React.createElement(Icon, { name: item.icon, size: 22 }), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-medium" }, item.label)))));
+  };
+  function Splash({ onDone }) {
+    useEffect(() => {
+      const t = setTimeout(onDone, 2500);
+      return () => clearTimeout(t);
+    }, [onDone]);
+    return /* @__PURE__ */ React.createElement("div", { className: "splash fixed inset-0 z-50 bg-gradient-to-b from-sky-500 to-brand-blue flex flex-col items-center justify-center" }, /* @__PURE__ */ React.createElement("div", { style: { animation: "popIn .6s ease" } }, /* @__PURE__ */ React.createElement(Logo, { size: "xl", className: "mb-4 shadow-2xl" })), /* @__PURE__ */ React.createElement("p", { className: "text-white mt-5 text-xl font-semibold tracking-wide" }, "Gesti\xF3n de repartos"), /* @__PURE__ */ React.createElement("p", { className: "text-white/80 mt-2 text-sm" }, APP_VERSION));
+  }
+  function Dashboard({ db, setTab, onNewPedido, onSearch }) {
+    const dia = today();
+    const pedidosHoy = db.pedidos.filter((p) => p.fecha === dia);
+    const pendientes = pedidosHoy.filter((p) => p.estado === "Pendiente" || p.estado === "En reparto");
+    const entregados = pedidosHoy.filter((p) => p.estado === "Entregado");
+    const bidonesVendidos = pedidosHoy.filter((p) => esVentaPlata(p)).reduce((s, p) => s + (p.cantidad || 0), 0);
+    const bidonesDisp = pedidosHoy.filter((p) => p.formaPago === "Dispenser").reduce((s, p) => s + (p.cantidad || 0), 0);
+    const efectivo = pedidosHoy.filter((p) => p.formaPago === "Efectivo" && p.estado === "Entregado" && esVentaPlata(p)).reduce((s, p) => s + p.cantidad * precioDePedido(p, db), 0);
+    const transferencias = pedidosHoy.filter((p) => p.formaPago === "Transferencia" && p.estado === "Entregado" && esVentaPlata(p)).reduce((s, p) => s + p.cantidad * precioDePedido(p, db), 0);
+    const transPendientes = pedidosHoy.filter((p) => p.formaPago === "Transferencia" && !p.transferenciaAcreditada && p.estado !== "Cancelado").length;
+    const deudas = db.clientes.filter((c) => (c.deuda || 0) > 0).length;
+    const envasesPend = db.clientes.filter((c) => (c.envasesPendientes || 0) > 0).length;
+    return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement("div", { className: "bg-gradient-to-br from-brand-blue to-sky-600 text-white px-5 pt-8 pb-6 rounded-b-3xl shadow-lg" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 mb-6" }, /* @__PURE__ */ React.createElement(Logo, { size: "sm" }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold" }, "Aguas Del Paso"), /* @__PURE__ */ React.createElement("p", { className: "text-sky-100 text-sm" }, formatFechaLarga(dia), " \xB7 ", APP_VERSION))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "stat-box bg-white/15 rounded-2xl p-3 min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-bold leading-none" }, pedidosHoy.length), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-sky-100 mt-1.5" }, "Pedidos")), /* @__PURE__ */ React.createElement("div", { className: "stat-box bg-white/15 rounded-2xl p-3 min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-bold leading-none" }, bidonesVendidos), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-sky-100 mt-1.5" }, "Bidones vendidos")), /* @__PURE__ */ React.createElement("div", { className: "stat-box bg-white/15 rounded-2xl p-3 min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold leading-none" }, formatMoney(efectivo)), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-sky-100 mt-1.5" }, "Efectivo")), /* @__PURE__ */ React.createElement("div", { className: "stat-box bg-white/15 rounded-2xl p-3 min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold leading-none" }, formatMoney(transferencias)), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-sky-100 mt-1.5" }, "Transferencias")))), /* @__PURE__ */ React.createElement("div", { className: "px-4 -mt-4" }, /* @__PURE__ */ React.createElement("button", { onClick: onNewPedido, className: "w-full bg-brand-orange text-white font-bold text-lg py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 24 }), " NUEVO PEDIDO")), /* @__PURE__ */ React.createElement("div", { className: "px-4 mt-5 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement("div", { className: "absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" }, /* @__PURE__ */ React.createElement(Icon, { name: "search", size: 18 })), /* @__PURE__ */ React.createElement("input", { onFocus: onSearch, placeholder: "Buscar cliente...", className: "w-full pl-10 pr-4 py-3 rounded-xl border bg-white text-base", readOnly: true })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-bold text-amber-600 leading-none" }, pendientes.length), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500 mt-1.5" }, "Pendientes")), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-bold text-emerald-600 leading-none" }, entregados.length), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500 mt-1.5" }, "Entregados")), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-bold text-blue-600 leading-none" }, transPendientes), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500 mt-1.5" }, "Transf. a acreditar")), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-bold text-red-500 leading-none" }, deudas), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500 mt-1.5" }, "Con deuda"))), envasesPend > 0 && /* @__PURE__ */ React.createElement(Card, { className: "bg-orange-50" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-brand-orange-dark" }, /* @__PURE__ */ React.createElement(Icon, { name: "package", size: 20 }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, envasesPend, " clientes deben envases"))), /* @__PURE__ */ React.createElement(Card, { onClick: () => setTab("mas") }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold mb-1" }, "Cierre de ", formatFechaLarga(dia)), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-slate-600" }, "Efectivo ", formatMoney(efectivo), " \xB7 Transf. ", formatMoney(transferencias)), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500 mt-1" }, "Dispenser: ", bidonesDisp, " bidones (sin plata)"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-brand-blue mt-1" }, "M\xE1s \u2192 Reporte de ventas"))));
+  }
+  function RepartosScreen({ db, setDb, fecha, setFecha, onEditPedido }) {
+    const rangoEstado = (p) => p.estado === "Entregado" || p.estado === "Cancelado" ? 1 : 0;
+    const clientesMap = Object.fromEntries(db.clientes.map((c) => [c.id, c]));
+    const [barrioFiltro, setBarrioFiltro] = useState(null);
+    const [turnoFiltro, setTurnoFiltro] = useState("todos");
+    const barrioDe = (p) => (clientesMap[p.clienteId]?.barrio || "Sin barrio").trim() || "Sin barrio";
+    const turnoRank = (t) => t === "mediodia" ? 1 : t === "tarde" ? 2 : 0;
+    const pedidosDia = db.pedidos.filter((p) => p.fecha === fecha).sort((a, b) => {
+      const ra = rangoEstado(a), rb = rangoEstado(b);
+      if (ra !== rb) return ra - rb;
+      return Number(a.prioridad || 99) - Number(b.prioridad || 99);
+    });
+    const pedidos = pedidosDia.filter((p) => (!barrioFiltro || barrioDe(p) === barrioFiltro) && (turnoFiltro === "todos" || (p.turno || "manana") === turnoFiltro));
+    const setTurno = (id) => {
+      const orden = ["manana", "mediodia", "tarde"];
+      const p = db.pedidos.find((x) => x.id === id);
+      const i = orden.indexOf(p?.turno || "manana");
+      const turno = orden[(i + 1) % 3];
+      const next = { ...db, pedidos: db.pedidos.map((x) => x.id === id ? { ...x, turno } : x) };
+      setDb(next);
+      saveDB(next);
+    };
+    const [dragId, setDragId] = useState(null);
+    const [overId, setOverId] = useState(null);
+    const [dragPos, setDragPos] = useState(null);
+    const dragYRef = useRef(null);
+    useEffect(() => {
+      if (!dragId) {
+        dragYRef.current = null;
+        return;
+      }
+      let raf = 0;
+      const tick = () => {
+        const y = dragYRef.current;
+        if (y != null) {
+          const h = window.innerHeight;
+          const zona = 110;
+          const nav = 90;
+          if (y < zona) window.scrollBy(0, Math.min(-8, -(zona - y) * 0.25));
+          else if (y > h - zona - nav) window.scrollBy(0, Math.min(22, (y - (h - zona - nav)) * 0.25));
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(raf);
+    }, [dragId]);
+    const [entregaId, setEntregaId] = useState(null);
+    const [pagoPaso, setPagoPaso] = useState(null);
+    const [pagoForma, setPagoForma] = useState("Efectivo");
+    const [entregaOpts, setEntregaOpts] = useState(null);
+    const [envasesQty, setEnvasesQty] = useState(1);
+    const [compraEnv, setCompraEnv] = useState(0);
+    const [compraDN, setCompraDN] = useState(0);
+    const [reprogId, setReprogId] = useState(null);
+    const [reprogFecha, setReprogFecha] = useState(today());
+    const cambiarEstado = (id, nuevo) => {
+      if (nuevo === "Entregado") {
+        const p = db.pedidos.find((x) => x.id === id);
+        setEntregaId(id);
+        setEnvasesQty(Number(p?.cantidad) || 1);
+        setCompraEnv(0);
+        setCompraDN(0);
+        if (p && p.formaPago === "Dispenser") {
+          setEntregaOpts({ estadoPago: "Incluido", formaPago: "Dispenser", acreditada: false });
+          setPagoPaso("envase");
+          return;
+        }
+        if (p && p.tipoPrecio === "cero") {
+          setEntregaOpts({ estadoPago: "Pagado", formaPago: p.formaPago || "Efectivo", acreditada: false });
+          setPagoPaso("envase");
+          return;
+        }
+        setPagoPaso("tipo");
+        setPagoForma("Efectivo");
+        return;
+      }
+      const nuevos = db.pedidos.map((p) => p.id === id ? { ...p, estado: nuevo } : p);
+      const next = { ...db, pedidos: nuevos };
+      setDb(next);
+      saveDB(next);
+    };
+    const irAEnvase = (opts) => {
+      setEntregaOpts(opts);
+      setPagoPaso("envase");
+    };
+    const confirmarEntrega = (opts) => {
+      const next = aplicarEntrega(db, entregaId, opts);
+      setDb(next);
+      saveDB(next);
+      setEntregaId(null);
+      setPagoPaso(null);
+      setEntregaOpts(null);
+    };
+    const reordenar = (fromId, toId) => {
+      if (!fromId || !toId || fromId === toId) return;
+      const ids = pedidos.map((p) => p.id);
+      const from = ids.indexOf(fromId), to = ids.indexOf(toId);
+      if (from < 0 || to < 0) return;
+      const arr = [...ids];
+      arr.splice(from, 1);
+      arr.splice(to, 0, fromId);
+      const nuevos = db.pedidos.map((p) => {
+        const idx = arr.indexOf(p.id);
+        return idx >= 0 ? { ...p, prioridad: idx + 1 } : p;
+      });
+      const next = { ...db, pedidos: nuevos };
+      setDb(next);
+      saveDB(next);
+      setOverId(null);
+      setDragId(null);
+    };
+    const cardBajoDedo = (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      const card = el && el.closest ? el.closest("[data-pedido-id]") : null;
+      return card ? card.getAttribute("data-pedido-id") : null;
+    };
+    const totalBidones = pedidos.filter((p) => p.estado !== "Cancelado").reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+    const bidonesEntregados = pedidos.filter((p) => p.estado === "Entregado").reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+    const bidonesQuedan = pedidos.filter((p) => p.estado === "Pendiente" || p.estado === "En reparto").reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+    const inicioSemana = (() => {
+      const [y, m, d] = fecha.split("-").map(Number);
+      const dt = new Date(y, m - 1, d);
+      const dow = (dt.getDay() + 6) % 7;
+      dt.setDate(dt.getDate() - dow);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    })();
+    const bidSemana = db.pedidos.filter((p) => p.estado === "Entregado" && p.fecha >= inicioSemana && p.fecha <= fecha).reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+    const bidMes = db.pedidos.filter((p) => p.estado === "Entregado" && (p.fecha || "").startsWith(fecha.slice(0, 7))).reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+    return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Reparto del d\xEDa" }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 bg-white border-b flex items-center gap-3" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: fecha, onChange: (e) => setFecha(e.target.value), className: "flex-1 px-3 py-2 rounded-lg border text-base" }), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "ghost", onClick: () => setFecha(today()) }, "Hoy"), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "outline", onClick: () => {
+      const dest = diaSiguiente(fecha) < today() ? today() : diaSiguiente(fecha);
+      const n = pasarPendientes(db, fecha, dest);
+      const moved = n._movidos || 0;
+      const { _movidos, ...clean } = n;
+      if (!moved) {
+        alert("No hay pendientes ni en ruta en este d\xEDa");
+        return;
+      }
+      setDb(clean);
+      saveDB(clean);
+      setFecha(dest);
+    } }, "Pasar a ma\xF1ana")), (() => {
+      const stock = (db.stockDia || {})[fecha] || { llenos: "", vacios: "" };
+      const nota = (db.notasDia || {})[fecha] || "";
+      const deben = pedidosDia.filter((p) => p.estado !== "Cancelado" && (Number(clientesMap[p.clienteId]?.envasesPendientes) || 0) > 0);
+      const setStock = (k, v) => {
+        const stockDia = { ...db.stockDia || {}, [fecha]: { ...(db.stockDia || {})[fecha] || {}, [k]: v } };
+        const next = { ...db, stockDia };
+        setDb(next);
+        saveDB(next);
+      };
+      const setNota = (v) => {
+        const notasDia = { ...db.notasDia || {}, [fecha]: v };
+        const next = { ...db, notasDia };
+        setDb(next);
+        saveDB(next);
+      };
+      return /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-2 space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("label", { className: "bg-white rounded-xl border px-3 py-2 text-[11px] text-slate-500" }, "Llenos al salir", /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", className: "w-full text-base font-semibold text-slate-800 outline-none", value: stock.llenos || "", onChange: (e) => setStock("llenos", e.target.value), placeholder: "0" })), /* @__PURE__ */ React.createElement("label", { className: "bg-white rounded-xl border px-3 py-2 text-[11px] text-slate-500" }, "Vac\xEDos al volver", /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", className: "w-full text-base font-semibold text-slate-800 outline-none", value: stock.vacios || "", onChange: (e) => setStock("vacios", e.target.value), placeholder: "0" }))), /* @__PURE__ */ React.createElement("input", { value: nota, onChange: (e) => setNota(e.target.value), placeholder: "Nota del d\xEDa (nafta, calle cortada\u2026)", className: "w-full px-3 py-2 rounded-xl border text-sm bg-white" }), deben.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[11px] bg-orange-50 text-orange-800 rounded-xl px-3 py-2" }, "Hoy ", deben.length, " cliente", deben.length === 1 ? "" : "s", " del listado deben envase"));
+    })(), (() => {
+      const dow = diaSemanaISO(fecha);
+      const recs = (db.recorridos || []).filter((r) => (r.dias || []).includes(dow) || !(r.dias || []).length);
+      if (!recs.length) return null;
+      return /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-2 flex flex-wrap gap-1.5" }, recs.map((r) => /* @__PURE__ */ React.createElement("button", { key: r.id, className: "chip text-[11px] px-2 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-200", onClick: () => {
+        const n = cargarRecorridoEnFecha(db, r, fecha);
+        const c = n._cargados || 0;
+        delete n._cargados;
+        setDb(n);
+        saveDB(n);
+        if (!c) alert("Ya estaban cargados");
+      } }, "\uFF0B ", r.nombre)));
+    })(), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-2 grid grid-cols-3 gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "stat-box bg-sky-50 rounded-xl p-2 min-h-[56px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-brand-blue leading-none" }, totalBidones), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500 mt-1" }, "Pedidos")), /* @__PURE__ */ React.createElement("div", { className: "stat-box bg-emerald-50 rounded-xl p-2 min-h-[56px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-emerald-600 leading-none" }, bidonesEntregados), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500 mt-1" }, "Entregados")), /* @__PURE__ */ React.createElement("div", { className: "stat-box bg-amber-50 rounded-xl p-2 min-h-[56px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-amber-600 leading-none" }, bidonesQuedan), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500 mt-1" }, "Quedan"))), /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-1 text-[11px] text-slate-500 flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "D\xEDa ", bidonesEntregados, " bid"), /* @__PURE__ */ React.createElement("span", null, "Semana ", bidSemana, " bid"), /* @__PURE__ */ React.createElement("span", null, "Mes ", bidMes, " bid")), (() => {
+      const cnt = {};
+      pedidosDia.filter((p) => p.estado !== "Cancelado").forEach((p) => {
+        const b = barrioDe(p);
+        cnt[b] = (cnt[b] || 0) + 1;
+      });
+      const items = Object.entries(cnt).sort((a, b) => b[1] - a[1]);
+      if (!items.length) return null;
+      return /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-2 flex flex-wrap gap-1.5" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setBarrioFiltro(null), className: `chip text-[11px] px-2 py-1 rounded-full border ${!barrioFiltro ? "bg-brand-blue text-white border-brand-blue" : "bg-white"}` }, "Todos"), items.map(([b, n]) => /* @__PURE__ */ React.createElement("button", { key: b, onClick: () => setBarrioFiltro(barrioFiltro === b ? null : b), className: `chip text-[11px] px-2 py-1 rounded-full border ${barrioFiltro === b ? "bg-brand-orange text-white border-brand-orange" : "bg-white"}` }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold" }, n), "\xA0", b)));
+    })(), /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-2 flex gap-1.5" }, [["todos", "Todos"], ["manana", "Ma\xF1ana"], ["mediodia", "Mediod\xEDa"], ["tarde", "Tarde"]].map(([k, lab]) => {
+      const n = k === "todos" ? pedidosDia.filter((p) => p.estado !== "Cancelado").length : pedidosDia.filter((p) => p.estado !== "Cancelado" && (p.turno || "manana") === k).length;
+      return /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => setTurnoFiltro(k), className: `flex-1 py-1.5 rounded-xl text-[11px] font-semibold ${turnoFiltro === k ? "bg-brand-blue text-white" : "bg-white border"}` }, lab, " ", n);
+    })), /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-1 flex justify-between items-center" }, /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-400" }, "Manten\xE9 \u2630 y arrastr\xE1 para ordenar."), /* @__PURE__ */ React.createElement("button", { className: "text-xs font-semibold text-brand-blue", onClick: () => {
+      const ordenados = [...pedidos].sort((a, b) => {
+        const ca = clientesMap[a.clienteId], cb = clientesMap[b.clienteId];
+        const ra = rangoBarrio(db, ca?.barrio), rb = rangoBarrio(db, cb?.barrio);
+        if (ra !== rb) return ra - rb;
+        return sortNombre(ca || {}, cb || {});
+      });
+      const ids = ordenados.map((p) => p.id);
+      const nuevos = db.pedidos.map((p) => {
+        const idx = ids.indexOf(p.id);
+        return idx >= 0 ? { ...p, prioridad: idx + 1 } : p;
+      });
+      const next = { ...db, pedidos: nuevos };
+      setDb(next);
+      saveDB(next);
+    } }, "Ordenar por barrio")), dragId && dragPos && (() => {
+      const p = pedidos.find((x) => x.id === dragId);
+      const cli = p ? clientesMap[p.clienteId] : null;
+      return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", left: dragPos.x - 140, top: dragPos.y - 40, width: 280, zIndex: 80, pointerEvents: "none", transform: "scale(1.04) rotate(-2deg)", boxShadow: "0 20px 40px rgba(2,132,199,.35)" }, className: "bg-white rounded-2xl border-2 border-brand-orange p-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-sm" }, cli?.nombre || "Pedido"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500" }, p?.cantidad, " bidones"));
+    })(), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-2.5" }, pedidos.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-center py-12 text-slate-400" }, /* @__PURE__ */ React.createElement(Icon, { name: "truck", size: 48, className: "mx-auto mb-3 opacity-40" }), /* @__PURE__ */ React.createElement("p", null, "No hay pedidos")) : pedidos.map((p, idx) => {
+      const cli = clientesMap[p.clienteId];
+      const disp = findDispenserForCliente(db, cli);
+      const info = disp ? consumoMesDispenser(db, disp, p.fecha) : null;
+      const isDrag = dragId === p.id;
+      const isOver = overId === p.id && dragId && dragId !== p.id;
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: p.id }, isOver && /* @__PURE__ */ React.createElement("div", { className: "drop-line" }), /* @__PURE__ */ React.createElement(Card, { className: `!p-3 ${isDrag ? "opacity-30 border-dashed border-2 border-brand-blue" : ""} ${isOver ? "ring-2 ring-brand-orange" : ""}`, "data-pedido-id": p.id, style: { transition: "transform .18s ease, box-shadow .18s ease" }, onClick: () => !dragId && onEditPedido(p), onDragOver: (e) => {
+        e.preventDefault();
+        setOverId(p.id);
+      }, onDrop: (e) => {
+        e.preventDefault();
+        reordenar(dragId, p.id);
+      } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2" }, /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          className: "flex flex-col items-center touch-none select-none shrink-0",
+          draggable: true,
+          onClick: (e) => e.stopPropagation(),
+          onDragStart: () => setDragId(p.id),
+          onDragEnd: () => {
+            setDragId(null);
+            setOverId(null);
+            setDragPos(null);
+          },
+          onTouchStart: (e) => {
+            const t = e.touches[0];
+            setDragId(p.id);
+            setDragPos({ x: t.clientX, y: t.clientY });
+            dragYRef.current = t.clientY;
+          },
+          onTouchMove: (e) => {
+            e.preventDefault();
+            const t = e.touches[0];
+            setDragPos({ x: t.clientX, y: t.clientY });
+            dragYRef.current = t.clientY;
+            const id = cardBajoDedo(t.clientX, t.clientY);
+            if (id) setOverId(id);
+          },
+          onTouchEnd: (e) => {
+            const t = e.changedTouches[0];
+            const id = cardBajoDedo(t.clientX, t.clientY);
+            if (id) reordenar(p.id, id);
+            setDragId(null);
+            setOverId(null);
+            setDragPos(null);
+            dragYRef.current = null;
+          }
+        },
+        /* @__PURE__ */ React.createElement("div", { className: "w-7 h-7 rounded-full bg-brand-blue text-white font-bold flex items-center justify-center text-xs" }, idx + 1),
+        /* @__PURE__ */ React.createElement("div", { className: `mt-1 text-slate-400 ${isDrag ? "text-brand-orange handle-grip" : ""}` }, "\u2630")
+      ), /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-[15px] truncate" }, cli?.nombre || "Cliente"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500 truncate" }, cli?.barrio)), /* @__PURE__ */ React.createElement(Badge, { status: p.estado })), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5 mt-1.5 text-xs" }, /* @__PURE__ */ React.createElement("span", { className: "chip bg-sky-50 text-brand-blue px-2 py-0.5 rounded-lg font-medium" }, p.cantidad, " bid."), /* @__PURE__ */ React.createElement("button", { className: "chip bg-amber-50 text-amber-800 px-2 py-0.5 rounded-lg font-semibold", onClick: (e) => {
+        e.stopPropagation();
+        setTurno(p.id);
+      } }, p.turno === "tarde" ? "Tarde" : p.turno === "mediodia" ? "Mediod\xEDa" : "Ma\xF1ana"), /* @__PURE__ */ React.createElement("span", { className: "chip bg-slate-50 px-2 py-0.5 rounded-lg" }, p.formaPago), p.tipoPrecio === "mayorista" && /* @__PURE__ */ React.createElement("span", { className: "chip bg-violet-50 text-violet-700 px-2 py-0.5 rounded-lg" }, "May. 1"), p.tipoPrecio === "mayorista2" && /* @__PURE__ */ React.createElement("span", { className: "chip bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-lg" }, "May. 2"), (Number(cli?.envasesPendientes) || 0) > 0 && /* @__PURE__ */ React.createElement("span", { className: "chip bg-orange-100 text-orange-700 px-2 py-0.5 rounded-lg" }, cli.envasesPendientes, " env."), p.tipoPrecio === "cero" && /* @__PURE__ */ React.createElement("span", { className: "chip bg-slate-100 px-2 py-0.5 rounded-lg" }, "$0"), p.formaPago === "Dispenser" && /* @__PURE__ */ React.createElement("span", { className: "chip bg-orange-50 text-orange-700 px-2 py-0.5 rounded-lg" }, info?.restantes ?? 0, "/", info?.incluidos ?? 0), p.estadoPago === "Debe" && /* @__PURE__ */ React.createElement("span", { className: "chip bg-red-50 text-red-600 px-2 py-0.5 rounded-lg" }, "Debe"), p.formaPago === "Transferencia" && !p.transferenciaAcreditada && p.estadoPago !== "Debe" && /* @__PURE__ */ React.createElement("span", { className: "chip bg-amber-50 text-amber-700 px-2 py-0.5 rounded-lg" }, "Transf. pend.")))), p.estado !== "Entregado" && p.estado !== "Cancelado" && /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-2" }, p.estado === "Pendiente" && /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "outline", className: "flex-1 !py-2 text-xs", onClick: (e) => {
+        e.stopPropagation();
+        cambiarEstado(p.id, "En reparto");
+        abrirWhatsAppBusiness(cli?.telefono, "Estamos yendo a tu domicilio \u{1F6FB}");
+      } }, "En ruta"), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "primary", className: "flex-1 !py-2 text-xs", onClick: (e) => {
+        e.stopPropagation();
+        cambiarEstado(p.id, "Entregado");
+      } }, "Entregar"), p.estado === "En reparto" && /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "ghost", className: "flex-1 !py-2 text-xs", onClick: (e) => {
+        e.stopPropagation();
+        setReprogId(p.id);
+        setReprogFecha(p.fecha);
+      } }, "Reprogramar"), /* @__PURE__ */ React.createElement("button", { className: "px-2 text-red-500 text-xs font-semibold", onClick: (e) => {
+        e.stopPropagation();
+        if (confirm("\xBFBorrar este pedido?")) {
+          const next = eliminarPedido(db, p.id);
+          setDb(next);
+          saveDB(next);
+        }
+      } }, "\u2715")), p.estado === "Entregado" && /* @__PURE__ */ React.createElement("div", { className: "flex justify-end mt-1" }, /* @__PURE__ */ React.createElement("button", { className: "text-[11px] text-red-500 font-semibold", onClick: (e) => {
+        e.stopPropagation();
+        if (confirm("\xBFBorrar este pedido?")) {
+          const next = eliminarPedido(db, p.id);
+          setDb(next);
+          saveDB(next);
+        }
+      } }, "Borrar"))));
+    })), reprogId && /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-end justify-center", onClick: () => setReprogId(null) }, /* @__PURE__ */ React.createElement("div", { className: "bg-white w-full rounded-t-3xl p-4", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between mb-3" }, /* @__PURE__ */ React.createElement("h2", { className: "font-bold" }, "Reprogramar"), /* @__PURE__ */ React.createElement("button", { onClick: () => setReprogId(null) }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 22 }))), /* @__PURE__ */ React.createElement(Input, { label: "Nueva fecha", type: "date", value: reprogFecha, onChange: (e) => setReprogFecha(e.target.value) }), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: () => {
+      const pedidos2 = db.pedidos.map((x) => x.id === reprogId ? { ...x, fecha: reprogFecha, estado: "Pendiente" } : x);
+      const next = { ...db, pedidos: pedidos2 };
+      setDb(next);
+      saveDB(next);
+      setReprogId(null);
+    } }, "Mover a esa fecha"))), entregaId && (() => {
+      const pe = db.pedidos.find((x) => x.id === entregaId);
+      const cli = pe ? clientesMap[pe.clienteId] : null;
+      return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-end justify-center", onClick: () => setEntregaId(null) }, /* @__PURE__ */ React.createElement("div", { className: "bg-white w-full rounded-t-3xl p-4", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between mb-3" }, /* @__PURE__ */ React.createElement("h2", { className: "font-bold" }, "Entregar \xB7 ", cli?.nombre || ""), /* @__PURE__ */ React.createElement("button", { onClick: () => setEntregaId(null) }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 22 }))), pagoPaso === "tipo" && /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500 mb-2" }, pe?.cantidad, " bidones \xB7 \xBFPag\xF3 o debe?"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", variant: "orange", onClick: () => setPagoPaso("pago") }, "Pag\xF3"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", variant: "danger", onClick: () => setPagoPaso("debe") }, "Debe / te transfiere despu\xE9s")), pagoPaso === "pago" && /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500 mb-2" }, "\xBFC\xF3mo pag\xF3?"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: () => irAEnvase({ estadoPago: "Pagado", formaPago: "Efectivo", acreditada: false }) }, "Efectivo"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", variant: "outline", onClick: () => setPagoPaso("transf") }, "Transferencia")), pagoPaso === "debe" && /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500 mb-2" }, "Queda debiendo. \xBFC\xF3mo lo va a pagar?"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", variant: "danger", onClick: () => irAEnvase({ estadoPago: "Debe", formaPago: "Efectivo", acreditada: false }) }, "Debe efectivo"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", variant: "orange", onClick: () => irAEnvase({ estadoPago: "Pendiente", formaPago: "Transferencia", acreditada: false }) }, "Debe transferencia")), pagoPaso === "transf" && /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500 mb-2" }, "\xBFLa transferencia ya se acredit\xF3?"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: () => irAEnvase({ estadoPago: "Pagado", formaPago: "Transferencia", acreditada: true }) }, "S\xED, acreditada"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", variant: "orange", onClick: () => irAEnvase({ estadoPago: "Pendiente", formaPago: "Transferencia", acreditada: false }) }, "Todav\xEDa no (queda pendiente)")), pagoPaso === "envase" && /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500 mb-2" }, "\xBFDebe envase?"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", variant: "outline", onClick: () => confirmarEntrega({ ...entregaOpts, envasesCant: 0 }) }, "No"), /* @__PURE__ */ React.createElement(Button, { className: "w-full", variant: "orange", onClick: () => setPagoPaso("envaseQty") }, "S\xED, se lo prest\xE9")), pagoPaso === "envaseQty" && /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500" }, "\xBFCu\xE1ntos envases le dejaste?"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center gap-4" }, /* @__PURE__ */ React.createElement("button", { className: "w-12 h-12 rounded-full bg-slate-100 text-2xl font-bold", onClick: () => setEnvasesQty((q) => Math.max(1, q - 1)) }, "\u2212"), /* @__PURE__ */ React.createElement("div", { className: "text-3xl font-bold text-orange-600 w-10 text-center" }, envasesQty), /* @__PURE__ */ React.createElement("button", { className: "w-12 h-12 rounded-full bg-orange-100 text-orange-700 text-2xl font-bold", onClick: () => setEnvasesQty((q) => q + 1) }, "+")), /* @__PURE__ */ React.createElement(Button, { className: "w-full", variant: "orange", onClick: () => confirmarEntrega({ ...entregaOpts, envasesCant: envasesQty }) }, "Confirmar ", envasesQty))));
+    })());
+  }
+  function ClientesScreen({ db, onSelectCliente, onNewCliente }) {
+    const [q, setQ] = useState("");
+    const [filtroCli, setFiltroCli] = useState("todos");
+    const filtrados = useMemo(() => {
+      const t = q.toLowerCase().trim();
+      let base = !t ? db.clientes : db.clientes.filter((c) => (c.nombre || "").toLowerCase().includes(t) || (c.telefono || "").includes(t) || (c.barrio || "").toLowerCase().includes(t));
+      if (filtroCli === "deuda") base = base.filter((c) => (Number(c.deuda) || 0) > 0);
+      if (filtroCli === "envases") base = base.filter((c) => (Number(c.envasesPendientes) || 0) > 0);
+      if (filtroCli === "disp") base = base.filter((c) => findDispenserForCliente(db, c));
+      if (filtroCli === "sindisp") base = base.filter((c) => !findDispenserForCliente(db, c));
+      const arr = [...base];
+      if (filtroCli === "barrio") return arr.sort((a, b) => (a.barrio || "").localeCompare(b.barrio || "", "es") || sortNombre(a, b));
+      return arr.sort(sortNombre);
+    }, [db.clientes, q, filtroCli, db.dispensers]);
+    const totalClientes = db.clientes.length;
+    const totalEnvases = db.clientes.reduce((s, c) => s + (Number(c.envasesPendientes) || 0), 0);
+    const totalDeuda = db.clientes.reduce((s, c) => s + (Number(c.deuda) || 0), 0);
+    return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Clientes", right: /* @__PURE__ */ React.createElement("button", { onClick: onNewCliente, className: "p-2 rounded-full bg-white/20" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 20 })) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFiltroCli("todos"), className: `rounded-2xl bg-sky-50 border px-1.5 py-3 text-center flex flex-col items-center justify-center min-h-[72px] ${filtroCli === "todos" ? "border-brand-blue ring-2 ring-sky-200" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "text-xl font-bold text-brand-blue leading-none" }, totalClientes), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500 mt-1.5 leading-tight" }, "Clientes")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFiltroCli(filtroCli === "envases" ? "todos" : "envases"), className: `rounded-2xl bg-orange-50 border px-1.5 py-3 text-center flex flex-col items-center justify-center min-h-[72px] ${filtroCli === "envases" ? "border-orange-400 ring-2 ring-orange-200" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "text-xl font-bold text-orange-600 leading-none" }, totalEnvases), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500 mt-1.5 leading-tight" }, "Envases deben")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFiltroCli(filtroCli === "deuda" ? "todos" : "deuda"), className: `rounded-2xl bg-red-50 border px-1.5 py-3 text-center flex flex-col items-center justify-center min-h-[72px] ${filtroCli === "deuda" ? "border-red-400 ring-2 ring-red-200" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "text-base font-bold text-red-600 leading-none" }, formatMoney(totalDeuda)), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500 mt-1.5 leading-tight" }, "Deuda total"))), /* @__PURE__ */ React.createElement("div", { className: "relative mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" }, /* @__PURE__ */ React.createElement(Icon, { name: "search", size: 18 })), /* @__PURE__ */ React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Nombre, tel\xE9fono, barrio...", className: "w-full pl-10 pr-4 py-3 rounded-xl border bg-white text-base" })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1.5 mb-3 overflow-x-auto" }, [["disp", "Con disp."], ["sindisp", "Sin disp."], ["barrio", "Por barrio"]].map(([k, lab]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => setFiltroCli(filtroCli === k ? "todos" : k), className: `shrink-0 px-3 py-1.5 rounded-full text-[11px] font-semibold ${filtroCli === k ? "bg-brand-blue text-white" : "bg-white border"}` }, lab))), filtrados.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-center py-12 text-slate-400" }, /* @__PURE__ */ React.createElement(Icon, { name: "users", size: 48, className: "mx-auto mb-3 opacity-40" }), /* @__PURE__ */ React.createElement("p", null, "No hay clientes"), /* @__PURE__ */ React.createElement(Button, { className: "mt-4", onClick: onNewCliente }, "Agregar")) : /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, filtrados.map((c) => {
+      const disp = findDispenserForCliente(db, c);
+      const info = disp ? consumoMesDispenser(db, disp, today()) : null;
+      return /* @__PURE__ */ React.createElement(Card, { key: c.id, className: "!p-2.5", onClick: () => onSelectCliente(c) }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-sm truncate" }, c.nombre, disp && /* @__PURE__ */ React.createElement("span", { className: "ml-1 text-[9px] bg-sky-100 text-brand-blue px-1.5 py-0.5 rounded-full" }, "DISP")), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500 truncate" }, c.barrio, c.telefono ? ` \xB7 ${c.telefono}` : ""), disp && /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-brand-blue" }, "Quedan ", info.restantes, "/", info.incluidos)), /* @__PURE__ */ React.createElement("div", { className: "text-right text-[11px] shrink-0" }, (c.deuda || 0) > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-red-500 font-semibold" }, formatMoney(c.deuda)), (c.envasesPendientes || 0) > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-orange-600" }, c.envasesPendientes, " env."), /* @__PURE__ */ React.createElement("div", { className: "text-slate-400" }, c.cantidadHabitual || 0, " bid."))));
+    }))));
+  }
+  function ClienteDetail({ cliente, db, setDb, onBack, onEdit, onNewPedido, onEditPedido, onLive }) {
+    const live = db.clientes.find((c) => c.id === cliente.id) || cliente;
+    useEffect(() => {
+      if (onLive && live) onLive(live);
+    }, [live.deuda, live.envasesPendientes, live.nombre, live.telefono, live.direccion, live.barrio]);
+    const historial = db.pedidos.filter((p) => p.clienteId === live.id).sort((a, b) => b.fecha.localeCompare(a.fecha));
+    const disp = findDispenserForCliente(db, live);
+    const [mesSel, setMesSel] = useState(today().slice(0, 7));
+    const infoDisp = disp ? consumoMesDispenser(db, disp, mesSel + "-01") : null;
+    const alqMes = disp ? (db.alquileres || []).find((a) => a.dispenserClienteId === disp.id && a.mes === mesSel) : null;
+    const marcarPagoMes = (pagado, formaPago) => {
+      if (!disp) return;
+      let alquileres = [...db.alquileres || []];
+      if (alqMes) {
+        alquileres = alquileres.map((a) => a.id === alqMes.id ? { ...a, pagado, formaPago: pagado ? formaPago || a.formaPago || "Efectivo" : "", fechaPago: pagado ? a.fechaPago || today() : "" } : a);
+      } else {
+        alquileres.push({ id: uid(), dispenserClienteId: disp.id, mes: mesSel, monto: disp.precioMensual || 15e3, bidonesIncluidos: disp.bidonesIncluidos ?? 10, bidonesConsumidos: infoDisp?.consumidos || 0, pagado, fechaPago: pagado ? today() : "", formaPago: pagado ? formaPago || "Efectivo" : "", observaciones: "" });
+      }
+      const next = { ...db, alquileres };
+      setDb(next);
+      saveDB(next);
+    };
+    const actualizarEnvases = (delta) => {
+      const actual = Math.max(0, Number(live.envasesPendientes) || 0);
+      const nuevo = Math.max(0, actual + delta);
+      const nextCli = { ...live, envasesPendientes: nuevo };
+      const next = { ...db, clientes: db.clientes.map((c) => c.id === live.id ? nextCli : c) };
+      setDb(next);
+      saveDB(next);
+      if (onLive) onLive(nextCli);
+    };
+    const setDeudaManual = (valor) => {
+      const nextCli = { ...live, deuda: valor };
+      const next = { ...db, clientes: db.clientes.map((c) => c.id === live.id ? nextCli : c) };
+      setDb(next);
+      saveDB(next);
+      if (onLive) onLive(nextCli);
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: live.nombre, onBack, right: /* @__PURE__ */ React.createElement("button", { onClick: onEdit, className: "p-2 rounded-full bg-white/20" }, /* @__PURE__ */ React.createElement(Icon, { name: "edit", size: 18 })) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-4 space-y-4" }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-2 text-sm" }, live.telefono && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "phone", size: 16, className: "text-slate-400" }), " ", live.telefono), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "map", size: 16, className: "text-slate-400" }), " ", live.direccion), /* @__PURE__ */ React.createElement("div", { className: "text-slate-500" }, "Barrio: ", live.barrio, " \xB7 Habitual: ", live.cantidadHabitual || 0))), disp && infoDisp && /* @__PURE__ */ React.createElement(Card, { className: "bg-sky-50" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-brand-blue mb-1" }, "Dispenser"), /* @__PURE__ */ React.createElement("div", { className: "text-sm" }, formatMoney(disp.precioMensual), "/mes \xB7 N\xB0 ", disp.dispenserId || "\u2014"), /* @__PURE__ */ React.createElement(Select, { label: "Mes", value: mesSel, onChange: (e) => setMesSel(e.target.value) }, mesesCercanos().map((m) => /* @__PURE__ */ React.createElement("option", { key: m, value: m }, formatMes(m)))), /* @__PURE__ */ React.createElement("div", { className: "text-sm" }, "Incluidos ", infoDisp.incluidos, " \xB7 Consumidos ", infoDisp.consumidos, " \xB7 Quedan ", /* @__PURE__ */ React.createElement("strong", { className: infoDisp.restantes > 0 ? "text-emerald-600" : "text-orange-600" }, infoDisp.restantes)), /* @__PURE__ */ React.createElement("div", { className: "mt-3 pt-3 border-t border-sky-200" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium mb-2" }, "\xBFPag\xF3 ", formatMes(mesSel), "?"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => marcarPagoMes(true), className: `flex-1 py-2 rounded-xl text-sm font-semibold ${alqMes && alqMes.pagado ? "bg-emerald-500 text-white" : "bg-white border"}` }, "Pag\xF3"), /* @__PURE__ */ React.createElement("button", { onClick: () => marcarPagoMes(false), className: `flex-1 py-2 rounded-xl text-sm font-semibold ${!alqMes || !alqMes.pagado ? "bg-amber-500 text-white" : "bg-white border"}` }, "No pag\xF3")))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500 mb-1" }, "Deuda"), /* @__PURE__ */ React.createElement("div", { className: `text-xl font-bold leading-none ${(live.deuda || 0) > 0 ? "text-red-500" : "text-emerald-600"}` }, formatMoney(live.deuda || 0)), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-400 mt-1" }, "Se calcula de los pedidos")), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box min-h-[72px]" }, /* @__PURE__ */ React.createElement("div", { className: "text-xl font-bold text-orange-600 leading-none" }, live.envasesPendientes || 0), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500 mt-1.5" }, "Envases"))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, "Envases que debe"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500 mt-0.5" }, "No se mezclan con los bidones del pedido")), /* @__PURE__ */ React.createElement("div", { className: `px-3 py-1.5 rounded-full text-sm font-bold ${(live.envasesPendientes || 0) > 0 ? "bg-orange-100 text-orange-700" : "bg-emerald-100 text-emerald-700"}` }, (live.envasesPendientes || 0) > 0 ? `DEBE ${live.envasesPendientes}` : "AL D\xCDA")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center gap-4 py-2" }, /* @__PURE__ */ React.createElement("button", { className: "w-12 h-12 rounded-full bg-slate-100 text-2xl font-bold", onClick: () => actualizarEnvases(-1) }, "\u2212"), /* @__PURE__ */ React.createElement("div", { className: "text-3xl font-bold text-orange-600 w-12 text-center" }, live.envasesPendientes || 0), /* @__PURE__ */ React.createElement("button", { className: "w-12 h-12 rounded-full bg-orange-100 text-orange-700 text-2xl font-bold", onClick: () => actualizarEnvases(1) }, "+")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mt-2" }, /* @__PURE__ */ React.createElement("button", { className: "py-2 rounded-xl bg-orange-50 text-orange-700 font-semibold text-sm", onClick: () => actualizarEnvases(1) }, "Debe +1 envase"), /* @__PURE__ */ React.createElement("button", { className: "py-2 rounded-xl bg-emerald-50 text-emerald-700 font-semibold text-sm", onClick: () => actualizarEnvases(-1) }, "Devolvi\xF3 1"))), /* @__PURE__ */ React.createElement(Button, { variant: "orange", className: "w-full", onClick: () => onNewPedido(live) }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 18 }), " Nuevo pedido"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { className: "font-bold mb-2" }, "Historial"), historial.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-slate-400 text-sm" }, "Sin pedidos") : historial.map((p) => /* @__PURE__ */ React.createElement(Card, { key: p.id, className: "!p-3 mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "font-medium text-sm" }, formatFechaLarga(p.fecha), " \xB7 ", p.cantidad, " bid. ", p.tipoPrecio === "cero" ? "($0)" : p.tipoPrecio === "mayorista" ? "(may.)" : ""), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement("button", { className: "text-brand-blue text-xs font-semibold", onClick: () => onEditPedido(p) }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: "text-red-500 text-xs font-semibold", onClick: () => {
+      if (confirm("\xBFBorrar este pedido?")) {
+        const next = eliminarPedido(db, p.id);
+        setDb(next);
+        saveDB(next);
+      }
+    } }, "Borrar"))), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500" }, p.formaPago, " \xB7 ", p.estado, " \xB7 ", formatMoney(p.cantidad * precioDePedido(p, db))), p.formaPago === "Transferencia" && !p.transferenciaAcreditada && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-amber-700 font-semibold mt-1" }, "Transferencia pendiente de acreditar"), p.formaPago !== "Dispenser" && p.tipoPrecio !== "cero" && /* @__PURE__ */ React.createElement("button", { className: `mt-1 text-xs font-semibold ${p.estadoPago === "Debe" || p.estadoPago === "Pendiente" ? "text-red-600" : "text-emerald-600"}`, onClick: () => {
+      const estaImpaga = p.estadoPago === "Debe" || p.estadoPago === "Pendiente" || p.formaPago === "Transferencia" && !p.transferenciaAcreditada;
+      const nuevoEstado = estaImpaga ? "Pagado" : "Debe";
+      const pedidos = db.pedidos.map((x) => x.id === p.id ? { ...x, estadoPago: nuevoEstado, transferenciaAcreditada: estaImpaga ? true : x.transferenciaAcreditada } : x);
+      const clientes = actualizarDeudaPorPedidos(db, db.clientes, pedidos);
+      const next = { ...db, pedidos, clientes };
+      setDb(next);
+      saveDB(next);
+    } }, p.estadoPago === "Debe" || p.estadoPago === "Pendiente" || p.formaPago === "Transferencia" && !p.transferenciaAcreditada ? "Pendiente \xB7 tocar si pag\xF3" : "Pag\xF3 \xB7 tocar si debe"))))));
+  }
+  function NuevoPedidoModal({ db, setDb, onClose, clientePreseleccionado, pedidoEditar }) {
+    const [clienteId, setClienteId] = useState(pedidoEditar?.clienteId || clientePreseleccionado?.id || "");
+    const [cantidad, setCantidad] = useState(pedidoEditar?.cantidad || clientePreseleccionado?.cantidadHabitual || 2);
+    const [formaPago, setFormaPago] = useState(pedidoEditar?.formaPago || "Efectivo");
+    const [estado, setEstado] = useState(pedidoEditar?.estado || "Pendiente");
+    const [acreditada, setAcreditada] = useState(pedidoEditar?.transferenciaAcreditada || false);
+    const [obs, setObs] = useState(pedidoEditar?.observaciones || "");
+    const [repartidorId, setRepartidorId] = useState(pedidoEditar?.repartidorId || db.repartidores[0]?.id || "");
+    const [vehiculoId, setVehiculoId] = useState(pedidoEditar?.vehiculoId || db.vehiculos[0]?.id || "");
+    const [fecha, setFecha] = useState(pedidoEditar?.fecha || today());
+    const [tipoPrecio, setTipoPrecio] = useState(pedidoEditar?.tipoPrecio || "normal");
+    const [comproEnvase, setComproEnvase] = useState(pedidoEditar?.comproEnvase || 0);
+    const [comproDN, setComproDN] = useState(pedidoEditar?.comproDN || 0);
+    const [estadoPago, setEstadoPago] = useState(pedidoEditar?.estadoPago || (pedidoEditar?.formaPago === "Transferencia" && !pedidoEditar?.transferenciaAcreditada ? "Pendiente" : "Pagado"));
+    const [busqueda, setBusqueda] = useState("");
+    useEffect(() => {
+      if (pedidoEditar) return;
+      const cli = clientePreseleccionado || db.clientes.find((c) => c.id === clienteId);
+      if (cli && findDispenserForCliente(db, cli)) setFormaPago("Dispenser");
+    }, [clienteId, clientePreseleccionado]);
+    const clientesFiltrados = useMemo(() => {
+      if (!busqueda) return db.clientes.slice(0, 8);
+      const t = busqueda.toLowerCase();
+      return db.clientes.filter((c) => c.nombre.toLowerCase().includes(t) || (c.telefono || "").includes(t)).slice(0, 8);
+    }, [db.clientes, busqueda]);
+    const clienteSel = db.clientes.find((c) => c.id === clienteId);
+    const dispenserDelCliente = useMemo(() => {
+      if (!clienteId && !clienteSel) return null;
+      return (db.dispensers || []).find((d) => d.clienteId === clienteId || clienteSel && d.nombre && d.nombre.toLowerCase() === (clienteSel.nombre || "").toLowerCase()) || null;
+    }, [db.dispensers, clienteId, clienteSel]);
+    const infoDispenserMes = useMemo(() => {
+      if (!dispenserDelCliente) return null;
+      const mes = (fecha || today()).slice(0, 7);
+      const alq = (db.alquileres || []).find((a) => a.dispenserClienteId === dispenserDelCliente.id && a.mes === mes);
+      const incluidos = alq?.bidonesIncluidos ?? dispenserDelCliente.bidonesIncluidos ?? 10;
+      const consumidos = alq?.bidonesConsumidos || 0;
+      return { incluidos, consumidos, restantes: Math.max(0, incluidos - consumidos) };
+    }, [dispenserDelCliente, db.alquileres, fecha]);
+    const guardar = () => {
+      if (!clienteId || !cantidad) return alert("Seleccion\xE1 cliente y cantidad");
+      const precioU = tipoPrecio === "cero" ? 0 : tipoPrecio === "mayorista" ? db.precios?.bidonMayorista ?? 0 : tipoPrecio === "mayorista2" ? db.precios?.bidonMayorista2 ?? 0 : db.precios?.bidon ?? 2500;
+      const pedido = { id: pedidoEditar?.id || uid(), fecha, clienteId, cantidad: Number(cantidad), formaPago, estado, transferenciaAcreditada: formaPago === "Transferencia" ? acreditada : false, observaciones: obs, repartidorId, vehiculoId, prioridad: db.pedidos.filter((p) => p.fecha === fecha).length + 1, tipoPrecio, estadoPago: formaPago === "Dispenser" || tipoPrecio === "cero" ? tipoPrecio === "cero" ? "Pagado" : "Incluido" : formaPago === "Transferencia" && !acreditada ? "Pendiente" : estadoPago, precioUnitario: precioU, comproEnvase: Number(comproEnvase) || 0, comproDN: Number(comproDN) || 0, precioEnvase: db.precios?.envase || 0, precioDN: db.precios?.dispenserNatural || 0 };
+      let pedidos = pedidoEditar ? db.pedidos.map((p) => p.id === pedido.id ? pedido : p) : [...db.pedidos, pedido];
+      const montoPedido = Number(cantidad) * precioU;
+      const pagoAnterior = pedidoEditar?.estadoPago;
+      let clientes = actualizarDeudaPorPedidos(db, db.clientes, pedidos);
+      let alquileres = db.alquileres || [];
+      if (formaPago === "Dispenser" && estado === "Entregado" && (!pedidoEditar || pedidoEditar.estado !== "Entregado")) {
+        alquileres = aplicarConsumoDispenser({ ...db, clientes, pedidos }, pedido);
+      }
+      const next = { ...db, pedidos, clientes, alquileres };
+      setDb(next);
+      saveDB(next);
+      onClose();
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-end justify-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white w-full max-w-lg rounded-t-3xl max-h-[92vh] overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "sticky top-0 bg-white px-4 py-3 border-b flex justify-between" }, /* @__PURE__ */ React.createElement("h2", { className: "text-lg font-bold" }, pedidoEditar ? "Editar" : "Nuevo", " pedido"), /* @__PURE__ */ React.createElement("button", { onClick: onClose, className: "p-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 22 }))), /* @__PURE__ */ React.createElement("div", { className: "p-4" }, !clientePreseleccionado && !pedidoEditar && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Input, { label: "Buscar cliente", value: busqueda, onChange: (e) => setBusqueda(e.target.value) }), busqueda && /* @__PURE__ */ React.createElement("div", { className: "mb-3 max-h-40 overflow-y-auto border rounded-xl" }, clientesFiltrados.map((c) => /* @__PURE__ */ React.createElement("button", { key: c.id, onClick: () => {
+      setClienteId(c.id);
+      setBusqueda("");
+      setCantidad(c.cantidadHabitual || 2);
+      if (findDispenserForCliente(db, c)) setFormaPago("Dispenser");
+    }, className: `w-full text-left px-3 py-2 border-b ${clienteId === c.id ? "bg-sky-50" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, c.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500" }, c.barrio))))), clienteSel && /* @__PURE__ */ React.createElement("div", { className: "bg-sky-50 rounded-xl p-3 mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, clienteSel.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-sm" }, clienteSel.barrio), dispenserDelCliente && infoDispenserMes && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-brand-blue" }, "Quedan ", infoDispenserMes.restantes, "/", infoDispenserMes.incluidos)), /* @__PURE__ */ React.createElement(Input, { label: "Fecha", type: "date", value: fecha, onChange: (e) => setFecha(e.target.value) }), /* @__PURE__ */ React.createElement(Input, { label: "Cantidad", type: "number", min: "1", value: cantidad, onChange: (e) => setCantidad(e.target.value) }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-3" }, /* @__PURE__ */ React.createElement("label", { className: "text-sm" }, "Compr\xF3 envase ", /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-slate-400" }, "(incluye recarga)"), /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", className: "w-full mt-1 px-3 py-2 rounded-xl border", value: comproEnvase, onChange: (e) => setComproEnvase(e.target.value) })), /* @__PURE__ */ React.createElement("label", { className: "text-sm" }, "Compr\xF3 disp. natural ", /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-slate-400" }, "(sin recarga)"), /* @__PURE__ */ React.createElement("input", { type: "number", min: "0", className: "w-full mt-1 px-3 py-2 rounded-xl border", value: comproDN, onChange: (e) => setComproDN(e.target.value) }))), /* @__PURE__ */ React.createElement(Select, { label: "Tipo de precio", value: tipoPrecio, onChange: (e) => {
+      setTipoPrecio(e.target.value);
+      if (e.target.value === "cero") setEstadoPago("Pagado");
+    } }, /* @__PURE__ */ React.createElement("option", { value: "normal" }, "Normal (", formatMoney(db.precios?.bidon ?? 2500), ")"), /* @__PURE__ */ React.createElement("option", { value: "mayorista" }, "Mayorista 1 (", formatMoney(db.precios?.bidonMayorista ?? 0), ")"), /* @__PURE__ */ React.createElement("option", { value: "mayorista2" }, "Mayorista 2 (", formatMoney(db.precios?.bidonMayorista2 ?? 1800), ")"), /* @__PURE__ */ React.createElement("option", { value: "cero" }, "$0 (sin cargo)")), formaPago !== "Dispenser" && tipoPrecio !== "cero" && /* @__PURE__ */ React.createElement(Select, { label: "\xBFPag\xF3 o debe?", value: estadoPago === "Pendiente" ? "Debe" : estadoPago, onChange: (e) => setEstadoPago(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "Pagado" }, "Pag\xF3"), /* @__PURE__ */ React.createElement("option", { value: "Debe" }, "Debe")), /* @__PURE__ */ React.createElement(Select, { label: "Forma de pago", value: formaPago, onChange: (e) => setFormaPago(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "Efectivo" }, "Efectivo"), /* @__PURE__ */ React.createElement("option", { value: "Transferencia" }, "Transferencia"), /* @__PURE__ */ React.createElement("option", { value: "Dispenser" }, "Dispenser")), formaPago === "Transferencia" && /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-3 mb-3 p-3 bg-amber-50 rounded-xl" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: acreditada, onChange: (e) => setAcreditada(e.target.checked), className: "w-5 h-5" }), /* @__PURE__ */ React.createElement("span", null, "Acreditada")), /* @__PURE__ */ React.createElement(Select, { label: "Estado", value: estado, onChange: (e) => setEstado(e.target.value) }, /* @__PURE__ */ React.createElement("option", null, "Pendiente"), /* @__PURE__ */ React.createElement("option", null, "En reparto"), /* @__PURE__ */ React.createElement("option", null, "Entregado"), /* @__PURE__ */ React.createElement("option", null, "Cancelado")), /* @__PURE__ */ React.createElement(Select, { label: "Repartidor", value: repartidorId, onChange: (e) => setRepartidorId(e.target.value) }, db.repartidores.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.id, value: r.id }, r.nombre))), /* @__PURE__ */ React.createElement(Select, { label: "Veh\xEDculo", value: vehiculoId, onChange: (e) => setVehiculoId(e.target.value) }, db.vehiculos.map((v) => /* @__PURE__ */ React.createElement("option", { key: v.id, value: v.id }, v.marca, " ", v.modelo))), /* @__PURE__ */ React.createElement(Textarea, { label: "Obs.", value: obs, onChange: (e) => setObs(e.target.value) }), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: guardar }, pedidoEditar ? "Guardar" : "Crear"))));
+  }
+  function ClienteFormModal({ db, setDb, onClose, clienteEditar }) {
+    const [form, setForm] = useState(clienteEditar ? { ...clienteEditar, envasesPendientes: Number(clienteEditar.envasesPendientes ?? Math.max(0, (clienteEditar.envasesEntregados || 0) - (clienteEditar.envasesDevueltos || 0))) } : { nombre: "", telefono: "", direccion: "", barrio: "", cantidadHabitual: 2, deuda: 0, envasesPendientes: 0 });
+    const guardar = () => {
+      if (!form.nombre.trim()) return alert("Nombre obligatorio");
+      const cli = { ...form, id: clienteEditar?.id || uid(), envasesPendientes: Math.max(0, Number(form.envasesPendientes) || 0) };
+      const clientes = clienteEditar ? db.clientes.map((c) => c.id === cli.id ? cli : c) : [...db.clientes, cli];
+      const next = { ...db, clientes };
+      setDb(next);
+      saveDB(next);
+      onClose(cli);
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-end justify-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white w-full max-w-lg rounded-t-3xl max-h-[92vh] overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "sticky top-0 bg-white px-4 py-3 border-b flex justify-between" }, /* @__PURE__ */ React.createElement("h2", { className: "text-lg font-bold" }, clienteEditar ? "Editar" : "Nuevo", " cliente"), /* @__PURE__ */ React.createElement("button", { onClick: () => onClose(), className: "p-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 22 }))), /* @__PURE__ */ React.createElement("div", { className: "p-4" }, /* @__PURE__ */ React.createElement(Input, { label: "Nombre *", value: form.nombre, onChange: (e) => setForm({ ...form, nombre: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Tel\xE9fono", value: form.telefono, onChange: (e) => setForm({ ...form, telefono: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Direcci\xF3n", value: form.direccion, onChange: (e) => setForm({ ...form, direccion: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Barrio", value: form.barrio, onChange: (e) => setForm({ ...form, barrio: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Habitual", type: "number", value: form.cantidadHabitual, onChange: (e) => setForm({ ...form, cantidadHabitual: Number(e.target.value) }) }), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: guardar }, "Guardar"))));
+  }
+  function DispensersScreen({ db, setDb }) {
+    const [selected, setSelected] = useState(null);
+    const [showNew, setShowNew] = useState(false);
+    const [editingDisp, setEditingDisp] = useState(null);
+    const [editingAlq, setEditingAlq] = useState(null);
+    const [filtroDisp, setFiltroDisp] = useState("todos");
+    const [qDisp, setQDisp] = useState("");
+    const [mesVista, setMesVista] = useState(mesAR());
+    const [ordenDisp, setOrdenDisp] = useState("az");
+    const [form, setForm] = useState({ nombre: "", telefono: "", direccion: "", barrio: "", dispenserId: "", fechaInicio: today(), precioMensual: db.precios?.alquilerBase || 15e3, bidonesIncluidos: 10, cantidadDispensers: 1, estado: "Activo", clienteId: "" });
+    const [showEspera, setShowEspera] = useState(false);
+    const [esperaAbierta, setEsperaAbierta] = useState(false);
+    const [esperaForm, setEsperaForm] = useState({ nombre: "", telefono: "", barrio: "", obs: "" });
+    const resetForm = () => setForm({ nombre: "", telefono: "", direccion: "", barrio: "", dispenserId: "", fechaInicio: today(), precioMensual: db.precios?.alquilerBase || 15e3, bidonesIncluidos: 10, cantidadDispensers: 1, estado: "Activo", clienteId: "" });
+    const setCantDisp = (disp, n) => {
+      const val = Math.max(1, Number(n) || 1);
+      const dispensers = db.dispensers.map((d) => d.id === disp.id ? { ...d, cantidadDispensers: val } : d);
+      const next = { ...db, dispensers };
+      setDb(next);
+      saveDB(next);
+      if (selected && selected.id === disp.id) setSelected({ ...selected, cantidadDispensers: val });
+    };
+    const guardarDispenser = () => {
+      if (!form.nombre) return alert("Nombre obligatorio");
+      let clientes = [...db.clientes];
+      let clienteId = form.clienteId;
+      if (!clienteId) {
+        const existente = clientes.find((c) => (c.nombre || "").toLowerCase() === form.nombre.toLowerCase());
+        if (existente) clienteId = existente.id;
+        else {
+          const nuevoCli = { id: uid(), nombre: form.nombre, telefono: form.telefono || "", direccion: form.direccion || "", barrio: form.barrio || "", cantidadHabitual: form.bidonesIncluidos || 10, observaciones: "Dispenser", deuda: 0, envasesEntregados: 0, envasesDevueltos: 0, envasesPendientes: 0 };
+          clientes = [...clientes, nuevoCli];
+          clienteId = nuevoCli.id;
+        }
+      }
+      const dataDisp = { ...form, clienteId };
+      const dispensers = editingDisp ? db.dispensers.map((d) => d.id === editingDisp.id ? { ...dataDisp, id: editingDisp.id } : d) : [...db.dispensers, { ...dataDisp, id: uid() }];
+      const next = { ...db, dispensers, clientes };
+      setDb(next);
+      saveDB(next);
+      setShowNew(false);
+      setEditingDisp(null);
+      resetForm();
+      if (selected && editingDisp && selected.id === editingDisp.id) setSelected({ ...dataDisp, id: editingDisp.id });
+    };
+    if (selected) {
+      const alquileres = (db.alquileres || []).filter((a) => a.dispenserClienteId === selected.id).sort((a, b) => b.mes.localeCompare(a.mes));
+      const mesActual = mesAR();
+      let alqMes = alquileres.find((a) => a.mes === mesActual);
+      if (!alqMes) {
+        alqMes = { id: null, mes: mesActual, monto: selected.precioMensual || 15e3, bidonesIncluidos: selected.bidonesIncluidos ?? 10, bidonesConsumidos: 0, pagado: false, estadoPago: "Debe", montoPagado: 0, fechaPago: "", formaPago: "" };
+      }
+      const estadoDe = (a) => {
+        if (a.estadoPago === "Parcial" || a.montoPagado > 0 && !a.pagado && a.estadoPago !== "Pagado") return "Parcial";
+        if (a.pagado || a.estadoPago === "Pagado") return "Pagado";
+        return "Debe";
+      };
+      const badgeCls = (e) => e === "Pagado" ? "bg-emerald-100 text-emerald-700" : e === "Parcial" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700";
+      const incM = alqMes.bidonesIncluidos ?? selected.bidonesIncluidos ?? 10;
+      const consM = alqMes.bidonesConsumidos || 0;
+      const restM = Math.max(0, incM - consM);
+      const estM = estadoDe(alqMes);
+      const debeAlq = alquileres.reduce((s, a) => {
+        const est = estadoDe(a);
+        const monto = Number(a.monto || selected.precioMensual || 0);
+        const pagado = Number(a.montoPagado || 0);
+        if (est === "Debe") return s + monto;
+        if (est === "Parcial") return s + Math.max(0, monto - pagado);
+        return s;
+      }, 0);
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: selected.nombre, onBack: () => setSelected(null), right: /* @__PURE__ */ React.createElement("button", { onClick: () => {
+        setEditingDisp(selected);
+        setForm({ ...selected, cantidadDispensers: selected.cantidadDispensers || 1 });
+        setShowNew(true);
+      }, className: "p-2 rounded-full bg-white/20" }, /* @__PURE__ */ React.createElement(Icon, { name: "edit", size: 18 })) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-4 space-y-3" }, /* @__PURE__ */ React.createElement(Card, { className: "bg-sky-50 !p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm font-semibold text-brand-blue" }, "Cu\xE1ntos dispensers tiene"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "w-8 h-8 rounded-full bg-white border font-bold", onClick: () => setCantDisp(selected, (selected.cantidadDispensers || 1) - 1) }, "\u2212"), /* @__PURE__ */ React.createElement("span", { className: "text-xl font-bold w-6 text-center" }, selected.cantidadDispensers || 1), /* @__PURE__ */ React.createElement("button", { className: "w-8 h-8 rounded-full bg-white border font-bold", onClick: () => setCantDisp(selected, (selected.cantidadDispensers || 1) + 1) }, "+"))), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-semibold text-brand-blue mb-1" }, "Cliente con Dispenser"), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-600" }, "Alquiler ", formatMoney(selected.precioMensual), "/mes \xB7 N\xB0 ", selected.dispenserId || "\u2014"), /* @__PURE__ */ React.createElement("div", { className: `mt-2 font-bold ${estM === "Pagado" ? "text-emerald-600" : estM === "Parcial" ? "text-amber-600" : "text-red-600"}` }, formatMes(mesActual), " \u2014 ", estM === "Pagado" ? "PAG\xD3" : estM === "Parcial" ? "PARCIAL" : "DEBE"), /* @__PURE__ */ React.createElement("div", { className: "text-sm mt-1" }, "Incluidos ", incM, " \xB7 Consumidos ", consM, " \xB7 ", /* @__PURE__ */ React.createElement("span", { className: consM > incM ? "text-red-600 font-semibold" : consM >= incM ? "text-amber-600 font-semibold" : "text-emerald-600 font-semibold" }, consM > incM ? `Se excedi\xF3 +${consM - incM}` : consM >= incM ? "Complet\xF3 el cupo" : `Quedan ${restM}`)), alqMes.fechaPago && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-600 mt-1" }, "Pago: ", formatFechaLarga(alqMes.fechaPago)), debeAlq > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-xs text-red-600 mt-1 font-medium" }, "Debe alquileres: ", formatMoney(debeAlq))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center" }, /* @__PURE__ */ React.createElement("h3", { className: "font-bold" }, "Historial de alquileres"), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "orange", onClick: () => {
+        const mes = mesAR();
+        if ((db.alquileres || []).some((a) => a.dispenserClienteId === selected.id && a.mes === mes)) return alert("Ya existe el mes actual");
+        const alq = { id: uid(), dispenserClienteId: selected.id, mes, monto: selected.precioMensual || 15e3, bidonesIncluidos: selected.bidonesIncluidos ?? 10, bidonesConsumidos: 0, pagado: false, estadoPago: "Debe", montoPagado: 0, fechaPago: "", formaPago: "", observaciones: "" };
+        const next = { ...db, alquileres: [...db.alquileres || [], alq] };
+        setDb(next);
+        saveDB(next);
+      } }, "+ Mes")), alquileres.length === 0 && /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-400 text-center py-4" }, "Sin meses cargados. Toc\xE1 + Mes."), alquileres.map((a) => {
+        const inc = a.bidonesIncluidos ?? selected.bidonesIncluidos ?? 10;
+        const cons = a.bidonesConsumidos || 0;
+        const rest = Math.max(0, inc - cons);
+        const est = estadoDe(a);
+        const monto = Number(a.monto || selected.precioMensual || 0);
+        const pagadoN = Number(a.montoPagado || 0);
+        return /* @__PURE__ */ React.createElement(Card, { key: a.id, className: "!p-3", onClick: () => setEditingAlq({ ...a, bidonesIncluidos: inc, estadoPago: est, montoPagado: pagadoN, monto }) }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, formatMes(a.mes)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, est === "Pagado" || est === "Parcial" ? (a.formaPago || est) + (a.fechaPago ? ` \xB7 pag\xF3 ${formatFechaLarga(a.fechaPago)}` : est === "Parcial" ? ` \xB7 ${formatMoney(pagadoN)} de ${formatMoney(monto)}` : " \xB7 sin fecha") : "Sin pago"), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] mt-0.5" }, inc, " incl. \xB7 ", cons, " cons. \xB7 ", /* @__PURE__ */ React.createElement("span", { className: cons > inc ? "text-red-600 font-semibold" : cons >= inc ? "text-amber-700 font-semibold" : "text-emerald-600" }, cons > inc ? `excedi\xF3 +${cons - inc}` : cons >= inc ? "cupo completo" : `quedan ${rest}`))), /* @__PURE__ */ React.createElement("span", { className: `chip text-xs px-2 py-1 rounded-full shrink-0 ${badgeCls(est)}` }, est === "Pagado" ? "\u2713 Pag\xF3" : est)));
+      })), editingAlq && /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-end justify-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white w-full rounded-t-3xl p-4 max-h-[90vh] overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between mb-3" }, /* @__PURE__ */ React.createElement("h2", { className: "font-bold" }, formatMes(editingAlq.mes)), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditingAlq(null) }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 22 }))), /* @__PURE__ */ React.createElement(Input, { label: "Incluidos", type: "number", value: editingAlq.bidonesIncluidos ?? 10, onChange: (e) => setEditingAlq({ ...editingAlq, bidonesIncluidos: Number(e.target.value) }) }), /* @__PURE__ */ React.createElement(Input, { label: "Consumidos", type: "number", value: editingAlq.bidonesConsumidos || 0, onChange: (e) => setEditingAlq({ ...editingAlq, bidonesConsumidos: Number(e.target.value) }) }), /* @__PURE__ */ React.createElement(Input, { label: "Monto alquiler ($)", type: "number", value: editingAlq.monto || selected.precioMensual || 0, onChange: (e) => setEditingAlq({ ...editingAlq, monto: Number(e.target.value) }) }), /* @__PURE__ */ React.createElement("div", { className: "text-xs font-medium text-slate-500 mb-1.5" }, "Estado del pago"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-3" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setEditingAlq({ ...editingAlq, estadoPago: "Pagado", pagado: true, montoPagado: Number(editingAlq.monto || selected.precioMensual || 0) }), className: `flex-1 py-2.5 rounded-xl text-sm font-semibold ${editingAlq.estadoPago === "Pagado" ? "bg-emerald-500 text-white" : "bg-slate-100"}` }, "Pag\xF3"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditingAlq({ ...editingAlq, estadoPago: "Parcial", pagado: false }), className: `flex-1 py-2.5 rounded-xl text-sm font-semibold ${editingAlq.estadoPago === "Parcial" ? "bg-amber-500 text-white" : "bg-slate-100"}` }, "Parcial"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditingAlq({ ...editingAlq, estadoPago: "Debe", pagado: false, montoPagado: 0 }), className: `flex-1 py-2.5 rounded-xl text-sm font-semibold ${editingAlq.estadoPago === "Debe" ? "bg-red-500 text-white" : "bg-slate-100"}` }, "Debe")), editingAlq.estadoPago === "Parcial" && /* @__PURE__ */ React.createElement(Input, { label: "Monto pagado ($)", type: "number", value: editingAlq.montoPagado || 0, onChange: (e) => setEditingAlq({ ...editingAlq, montoPagado: Number(e.target.value) }) }), (editingAlq.estadoPago === "Pagado" || editingAlq.estadoPago === "Parcial") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Select, { label: "Forma de pago", value: editingAlq.formaPago || "", onChange: (e) => setEditingAlq({ ...editingAlq, formaPago: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014"), /* @__PURE__ */ React.createElement("option", { value: "Efectivo" }, "Efectivo"), /* @__PURE__ */ React.createElement("option", { value: "Transferencia" }, "Transferencia")), /* @__PURE__ */ React.createElement(Input, { label: "Fecha de pago", type: "date", value: editingAlq.fechaPago || "", onChange: (e) => setEditingAlq({ ...editingAlq, fechaPago: e.target.value }) })), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: () => {
+        const data = { ...editingAlq, pagado: editingAlq.estadoPago === "Pagado" };
+        const alquileres2 = (db.alquileres || []).map((a) => a.id === editingAlq.id ? data : a);
+        const next = { ...db, alquileres: alquileres2 };
+        setDb(next);
+        saveDB(next);
+        setEditingAlq(null);
+      } }, "Guardar"))));
+    }
+    const activos = db.dispensers.filter((d) => d.estado === "Activo");
+    const totalUnidades = activos.reduce((s, d) => s + (Number(d.cantidadDispensers) || 1), 0);
+    const sumaAlq = activos.reduce((s, d) => s + Number(d.precioMensual || 0), 0);
+    const consumoMes = (db.alquileres || []).filter((a) => a.mes === mesVista).reduce((s, a) => s + (a.bidonesConsumidos || 0), 0);
+    const consumoTotal = (db.alquileres || []).reduce((s, a) => s + (a.bidonesConsumidos || 0), 0);
+    const mesHoy = mesVista;
+    const infoDisp = (d) => {
+      const alqMes = (db.alquileres || []).find((a) => a.dispenserClienteId === d.id && a.mes === mesHoy);
+      const est = estadoAlquiler(alqMes);
+      const last = ultimoMesPagado(db, d);
+      return { est, last, alqMes };
+    };
+    const alDia = activos.filter((d) => infoDisp(d).est === "Pagado").length;
+    const atrasados = activos.filter((d) => infoDisp(d).est !== "Pagado").length;
+    const cobradoMes = (db.alquileres || []).filter((a) => a.mes === mesHoy).reduce((s, a) => {
+      const est = estadoAlquiler(a);
+      if (est === "Pagado") return s + Number(a.montoPagado || a.monto || 0);
+      if (est === "Parcial") return s + Number(a.montoPagado || 0);
+      return s;
+    }, 0);
+    const faltaMes = Math.max(0, sumaAlq - cobradoMes);
+    const marcarMesActual = (d, pagado) => {
+      let alquileres = [...db.alquileres || []];
+      const ex = alquileres.find((a) => a.dispenserClienteId === d.id && a.mes === mesHoy);
+      if (ex) alquileres = alquileres.map((a) => a.id === ex.id ? { ...a, pagado, estadoPago: pagado ? "Pagado" : "Debe", montoPagado: pagado ? Number(a.monto || d.precioMensual || 0) : 0, fechaPago: pagado ? a.fechaPago || today() : "", formaPago: pagado ? a.formaPago || "Efectivo" : a.formaPago } : a);
+      else alquileres.push({ id: uid(), dispenserClienteId: d.id, mes: mesHoy, monto: d.precioMensual || 15e3, bidonesIncluidos: d.bidonesIncluidos ?? 10, bidonesConsumidos: 0, pagado, estadoPago: pagado ? "Pagado" : "Debe", montoPagado: pagado ? d.precioMensual || 0 : 0, fechaPago: pagado ? today() : "", formaPago: pagado ? "Efectivo" : "", observaciones: "" });
+      const next = { ...db, alquileres };
+      setDb(next);
+      saveDB(next);
+    };
+    const lista = [...db.dispensers].sort((a, b) => {
+      if (ordenDisp === "debe") return (infoDisp(a).est === "Pagado" ? 1 : 0) - (infoDisp(b).est === "Pagado" ? 1 : 0) || sortNombre(a, b);
+      if (ordenDisp === "consumo") return (infoDisp(b).alqMes?.bidonesConsumidos || 0) - (infoDisp(a).alqMes?.bidonesConsumidos || 0);
+      return sortNombre(a, b);
+    }).filter((d) => {
+      if (filtroDisp === "aldia" && infoDisp(d).est !== "Pagado") return false;
+      if (filtroDisp === "atrasados" && infoDisp(d).est === "Pagado") return false;
+      if (!qDisp) return true;
+      const t = qDisp.toLowerCase();
+      return (d.nombre || "").toLowerCase().includes(t) || (d.barrio || "").toLowerCase().includes(t) || (d.telefono || "").includes(t) || (d.dispenserId || "").toLowerCase().includes(t);
+    });
+    return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Dispensers", right: /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      resetForm();
+      setEditingDisp(null);
+      setShowNew(true);
+    }, className: "p-2 rounded-full bg-white/20" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 20 })) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-2" }, /* @__PURE__ */ React.createElement(Card, { className: "bg-sky-50 !p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("button", { className: "w-9 h-9 rounded-full bg-white border font-bold text-brand-blue", onClick: () => setMesVista(shiftMes(mesVista, -1)) }, "\u2039"), /* @__PURE__ */ React.createElement("div", { className: "text-center" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-brand-blue" }, "Resumen \xB7 ", formatMes(mesVista)), mesVista !== mesAR() && /* @__PURE__ */ React.createElement("button", { className: "text-[11px] text-slate-500 underline", onClick: () => setMesVista(mesAR()) }, "Volver a ", formatMes(mesAR()))), /* @__PURE__ */ React.createElement("button", { className: "w-9 h-9 rounded-full bg-white border font-bold text-brand-blue", onClick: () => setMesVista(shiftMes(mesVista, 1)) }, "\u203A")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "stat-box" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold leading-none" }, activos.length), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500 mt-1" }, "Clientes")), /* @__PURE__ */ React.createElement("div", { className: "stat-box" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-emerald-600 leading-none" }, alDia), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500 mt-1" }, "Al d\xEDa")), /* @__PURE__ */ React.createElement("div", { className: "stat-box" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-orange-600 leading-none" }, atrasados), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500 mt-1" }, "Atrasados"))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mt-2" }, /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-emerald-50 p-2 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-bold text-emerald-700" }, formatMoney(cobradoMes)), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500" }, "Cobrado del mes")), /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-orange-50 p-2 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-bold text-orange-700" }, formatMoney(faltaMes)), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500" }, "Falta cobrar"))), /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-white p-2 text-center mt-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-xl font-bold text-brand-blue" }, totalUnidades), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-500" }, "Dispensers en calle")), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-center text-slate-500 mt-2" }, "Alquileres ", formatMoney(sumaAlq), " \xB7 Consumo ", consumoMes, " bid")), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement("div", { className: "absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" }, /* @__PURE__ */ React.createElement(Icon, { name: "search", size: 18 })), /* @__PURE__ */ React.createElement("input", { value: qDisp, onChange: (e) => setQDisp(e.target.value), placeholder: "Buscar cliente dispenser...", className: "w-full pl-10 pr-4 py-3 rounded-xl border bg-white text-base" })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setFiltroDisp("todos"), className: `flex-1 py-2 rounded-xl text-xs font-semibold ${filtroDisp === "todos" ? "bg-brand-blue text-white" : "bg-white border"}` }, "Todos"), /* @__PURE__ */ React.createElement("button", { onClick: () => setFiltroDisp("aldia"), className: `flex-1 py-2 rounded-xl text-xs font-semibold ${filtroDisp === "aldia" ? "bg-emerald-500 text-white" : "bg-white border"}` }, "Al d\xEDa"), /* @__PURE__ */ React.createElement("button", { onClick: () => setFiltroDisp("atrasados"), className: `flex-1 py-2 rounded-xl text-xs font-semibold ${filtroDisp === "atrasados" ? "bg-orange-500 text-white" : "bg-white border"}` }, "Atrasados")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1.5" }, [["az", "A-Z"], ["debe", "Debe primero"], ["consumo", "M\xE1s consumo"]].map(([k, lab]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => setOrdenDisp(k), className: `flex-1 py-1.5 rounded-xl text-[11px] font-semibold ${ordenDisp === k ? "bg-slate-800 text-white" : "bg-white border"}` }, lab))), /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement("button", { className: "w-full flex justify-between items-center", onClick: () => setEsperaAbierta((v) => !v) }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, "Lista de espera"), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-500" }, (db.listaEspera || []).length, " \xB7 ", esperaAbierta ? "ocultar" : "ver")), esperaAbierta && /* @__PURE__ */ React.createElement(React.Fragment, null, (db.listaEspera || []).length === 0 && /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-400 mb-2 mt-2" }, "Nadie en espera"), (db.listaEspera || []).map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, className: "flex justify-between items-start py-1.5 border-b last:border-0" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-medium text-sm" }, p.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, p.barrio || "", p.telefono ? ` \xB7 ${p.telefono}` : "", " \xB7 ", p.fecha), p.obs && /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-400" }, p.obs)), /* @__PURE__ */ React.createElement("button", { className: "text-red-500 text-xs font-semibold", onClick: () => {
+      const next = { ...db, listaEspera: (db.listaEspera || []).filter((x) => x.id !== p.id) };
+      setDb(next);
+      saveDB(next);
+    } }, "Quitar"))), showEspera ? /* @__PURE__ */ React.createElement("div", { className: "mt-2" }, /* @__PURE__ */ React.createElement(Input, { label: "Nombre *", value: esperaForm.nombre, onChange: (e) => setEsperaForm({ ...esperaForm, nombre: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Tel\xE9fono", value: esperaForm.telefono, onChange: (e) => setEsperaForm({ ...esperaForm, telefono: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Barrio", value: esperaForm.barrio, onChange: (e) => setEsperaForm({ ...esperaForm, barrio: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Nota", value: esperaForm.obs, onChange: (e) => setEsperaForm({ ...esperaForm, obs: e.target.value }) }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(Button, { className: "flex-1", onClick: () => {
+      if (!esperaForm.nombre.trim()) return alert("Nombre obligatorio");
+      const item = { id: uid(), ...esperaForm, nombre: esperaForm.nombre.trim(), fecha: today() };
+      const next = { ...db, listaEspera: [...db.listaEspera || [], item] };
+      setDb(next);
+      saveDB(next);
+      setEsperaForm({ nombre: "", telefono: "", barrio: "", obs: "" });
+      setShowEspera(false);
+    } }, "Guardar"), /* @__PURE__ */ React.createElement(Button, { variant: "ghost", className: "flex-1", onClick: () => setShowEspera(false) }, "Cancelar"))) : /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "outline", className: "w-full mt-2", onClick: () => setShowEspera(true) }, "+ Agregar a la espera"))), lista.map((d) => {
+      const inf = infoDisp(d);
+      const cons = inf.alqMes?.bidonesConsumidos || 0;
+      const inc = inf.alqMes?.bidonesIncluidos ?? d.bidonesIncluidos ?? 10;
+      const consTxt = cons > inc ? `Excedi\xF3 +${cons - inc}` : cons >= inc ? "Cupo completo" : `${cons}/${inc}`;
+      return /* @__PURE__ */ React.createElement(Card, { key: d.id, className: "!p-3", onClick: () => setSelected(d) }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold truncate" }, d.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-slate-500" }, formatMoney(d.precioMensual), "/mes \xB7 ", d.cantidadDispensers || 1, " disp."), /* @__PURE__ */ React.createElement("div", { className: `text-[11px] font-semibold mt-1 ${cons > inc ? "text-red-600" : cons >= inc ? "text-amber-700" : "text-emerald-700"}` }, consTxt), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, inf.alqMes?.fechaPago ? `Pag\xF3 ${formatFechaLarga(inf.alqMes.fechaPago)}` : inf.est === "Pagado" ? "Pag\xF3 \xB7 sin fecha" : "Sin pago este mes")), /* @__PURE__ */ React.createElement("span", { className: `chip text-[11px] px-2 py-1 rounded-full ${inf.est === "Pagado" ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"}` }, inf.est === "Pagado" ? "Al d\xEDa" : formatMes(mesHoy) + " debe")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-2", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("button", { className: "flex-1 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700", onClick: () => marcarMesActual(d, true) }, "Pag\xF3 ", formatMes(mesHoy).split(" ")[0]), /* @__PURE__ */ React.createElement("button", { className: "flex-1 py-1.5 rounded-lg text-[11px] font-semibold bg-orange-50 text-orange-700", onClick: () => marcarMesActual(d, false) }, "Debe mes")));
+    })), showNew && /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-end justify-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white w-full rounded-t-3xl p-4 max-h-[90vh] overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between mb-3" }, /* @__PURE__ */ React.createElement("h2", { className: "font-bold" }, editingDisp ? "Editar" : "Nuevo", " dispenser"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      setShowNew(false);
+      setEditingDisp(null);
+    } }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 22 }))), /* @__PURE__ */ React.createElement(Input, { label: "Nombre *", value: form.nombre, onChange: (e) => setForm({ ...form, nombre: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Tel", value: form.telefono, onChange: (e) => setForm({ ...form, telefono: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Direcci\xF3n", value: form.direccion, onChange: (e) => setForm({ ...form, direccion: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Barrio", value: form.barrio, onChange: (e) => setForm({ ...form, barrio: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "N\xB0 Dispenser", value: form.dispenserId, onChange: (e) => setForm({ ...form, dispenserId: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Alquiler $", type: "number", value: form.precioMensual, onChange: (e) => setForm({ ...form, precioMensual: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Bidones incluidos", type: "number", min: "0", value: form.bidonesIncluidos, onChange: (e) => setForm({ ...form, bidonesIncluidos: Number(e.target.value) }) }), /* @__PURE__ */ React.createElement(Input, { label: "Cantidad de dispensers", type: "number", min: "1", value: form.cantidadDispensers || 1, onChange: (e) => setForm({ ...form, cantidadDispensers: Math.max(1, Number(e.target.value) || 1) }) }), /* @__PURE__ */ React.createElement(Select, { label: "Vincular cliente", value: form.clienteId || "", onChange: (e) => setForm({ ...form, clienteId: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014"), db.clientes.map((c) => /* @__PURE__ */ React.createElement("option", { key: c.id, value: c.id }, c.nombre))), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: guardarDispenser }, "Guardar"))));
+  }
+  function MasScreen({ db, setDb, onInstall, puedeInstalar }) {
+    const [section, setSection] = useState(null);
+    const [diasAlerta, setDiasAlerta] = useState(15);
+    const [fechaReporte, setFechaReporte] = useState(today());
+    const [modoReporte, setModoReporte] = useState("dia");
+    const [anioReporte, setAnioReporte] = useState(String((/* @__PURE__ */ new Date()).getFullYear()));
+    const [mesReporte, setMesReporte] = useState(mesAR());
+    const [fechaCierre, setFechaCierre] = useState(today());
+    const importRef = useRef(null);
+    const [gastoForm, setGastoForm] = useState({ fecha: today(), concepto: "", monto: "" });
+    const [recEdit, setRecEdit] = useState(null);
+    const [recQ, setRecQ] = useState("");
+    const esImpago = (p) => esVentaPlata(p) && (p.estadoPago === "Debe" || p.estadoPago === "Pendiente" || p.formaPago === "Transferencia" && !p.transferenciaAcreditada);
+    const calcStats = (lista) => {
+      const vendidos = lista.filter((p) => p.estado === "Entregado");
+      const bidN = vendidos.filter((p) => p.tipoPrecio !== "mayorista" && p.tipoPrecio !== "mayorista2" && p.tipoPrecio !== "cero" && p.formaPago !== "Dispenser").reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+      const bidM = vendidos.filter((p) => p.tipoPrecio === "mayorista").reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+      const bidM2 = vendidos.filter((p) => p.tipoPrecio === "mayorista2").reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+      const bid0 = vendidos.filter((p) => p.tipoPrecio === "cero").reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+      const bidD = vendidos.filter((p) => p.formaPago === "Dispenser").reduce((s, p) => s + (Number(p.cantidad) || 0), 0);
+      const cobrado = vendidos.filter((p) => p.estadoPago === "Pagado" && esVentaPlata(p) && !(p.formaPago === "Transferencia" && !p.transferenciaAcreditada)).reduce((s, p) => s + p.cantidad * precioDePedido(p, db), 0);
+      const debe = lista.filter((p) => p.estado !== "Cancelado" && esImpago(p)).reduce((s, p) => s + p.cantidad * precioDePedido(p, db), 0);
+      const efec = vendidos.filter((p) => p.formaPago === "Efectivo" && p.estadoPago === "Pagado" && esVentaPlata(p)).reduce((s, p) => s + p.cantidad * precioDePedido(p, db), 0);
+      const trans = vendidos.filter((p) => p.formaPago === "Transferencia" && p.transferenciaAcreditada && esVentaPlata(p)).reduce((s, p) => s + p.cantidad * precioDePedido(p, db), 0);
+      const transPendMonto = lista.filter((p) => p.formaPago === "Transferencia" && !p.transferenciaAcreditada && p.estado !== "Cancelado" && esVentaPlata(p)).reduce((s, p) => s + p.cantidad * precioDePedido(p, db), 0);
+      return { vendidos, bidN, bidM, bidM2, bid0, bidD, cobrado, debe, efec, trans, transPendMonto };
+    };
+    if (section === "repartidores") return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Repartidores", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-2" }, db.repartidores.map((r) => /* @__PURE__ */ React.createElement(Card, { key: r.id }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, r.nombre), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "danger", onClick: () => {
+      if (!confirm("\xBFBorrar?")) return;
+      const next = { ...db, repartidores: db.repartidores.filter((x) => x.id !== r.id) };
+      setDb(next);
+      saveDB(next);
+    } }, "Borrar")))), /* @__PURE__ */ React.createElement(Button, { className: "w-full mt-4", onClick: () => {
+      const n = prompt("Nombre");
+      if (!n) return;
+      const next = { ...db, repartidores: [...db.repartidores, { id: uid(), nombre: n, telefono: "", vehiculoId: "" }] };
+      setDb(next);
+      saveDB(next);
+    } }, "+ Agregar")));
+    if (section === "vehiculos") return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Veh\xEDculos", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-2" }, db.vehiculos.map((v) => /* @__PURE__ */ React.createElement(Card, { key: v.id }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, v.marca, " ", v.modelo), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-slate-500" }, v.patente)), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "danger", onClick: () => {
+      if (!confirm("\xBFBorrar?")) return;
+      const next = { ...db, vehiculos: db.vehiculos.filter((x) => x.id !== v.id) };
+      setDb(next);
+      saveDB(next);
+    } }, "Borrar")))), /* @__PURE__ */ React.createElement(Button, { className: "w-full mt-4", onClick: () => {
+      const marca = prompt("Marca");
+      const modelo = prompt("Modelo");
+      const patente = prompt("Patente");
+      if (!marca || !patente) return;
+      const next = { ...db, vehiculos: [...db.vehiculos, { id: uid(), marca, modelo: modelo || "", patente, anio: (/* @__PURE__ */ new Date()).getFullYear(), estado: "Activo" }] };
+      setDb(next);
+      saveDB(next);
+    } }, "+ Agregar")));
+    if (section === "reporte") {
+      const lista = modoReporte === "dia" ? db.pedidos.filter((p) => p.fecha === fechaReporte) : modoReporte === "mes" ? db.pedidos.filter((p) => (p.fecha || "").startsWith(mesReporte)) : db.pedidos.filter((p) => (p.fecha || "").startsWith(anioReporte));
+      const st = calcStats(lista);
+      const anios = [...new Set(db.pedidos.map((p) => (p.fecha || "").slice(0, 4)).filter(Boolean))].sort().reverse();
+      const mesesOpts = [];
+      for (let i = 0; i < 12; i++) {
+        const d = /* @__PURE__ */ new Date();
+        d.setMonth(d.getMonth() - i);
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        mesesOpts.push(ym);
+      }
+      const vendidosMes = lista.filter((p) => p.estado === "Entregado");
+      const porCli = {};
+      vendidosMes.forEach((p) => {
+        if (!p.clienteId) return;
+        porCli[p.clienteId] = (porCli[p.clienteId] || 0) + (Number(p.cantidad) || 0);
+      });
+      const ranking = Object.entries(porCli).map(([id, n]) => ({ id, n, nombre: (db.clientes.find((c) => c.id === id) || {}).nombre || "Sin nombre" })).sort((a, b) => b.n - a.n);
+      const masPidio = ranking[0] || null;
+      const menosPidio = ranking.length ? ranking[ranking.length - 1] : null;
+      const ultimoPedido = {};
+      (db.pedidos || []).filter((p) => p.estado !== "Cancelado").forEach((p) => {
+        if (!p.clienteId || !p.fecha) return;
+        if (!ultimoPedido[p.clienteId] || p.fecha > ultimoPedido[p.clienteId]) ultimoPedido[p.clienteId] = p.fecha;
+      });
+      const inactivos = db.clientes.map((c) => ({ c, ult: ultimoPedido[c.id] || "" })).sort((a, b) => (a.ult || "0000").localeCompare(b.ult || "0000"));
+      const haceMucho = inactivos[0] || null;
+      const consDisp = (db.alquileres || []).filter((a) => modoReporte === "mes" ? a.mes === mesReporte : modoReporte === "anio" ? (a.mes || "").startsWith(anioReporte) : a.mes === (fechaReporte || "").slice(0, 7)).map((a) => ({ a, n: Number(a.bidonesConsumidos) || 0, nombre: (db.dispensers.find((d) => d.id === a.dispenserClienteId) || {}).nombre || "\u2014" })).sort((a, b) => b.n - a.n);
+      const dispMas = consDisp[0] || null;
+      const dispMenos = consDisp.length ? consDisp[consDisp.length - 1] : null;
+      const bidMayor = st.bidM + (st.bidM2 || 0);
+      const bidMinor = st.bidN;
+      const bidVendidos = st.bidN + st.bidM + (st.bidM2 || 0);
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Reporte de ventas", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-4 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setModoReporte("dia"), className: `flex-1 py-2.5 rounded-xl text-sm font-semibold ${modoReporte === "dia" ? "bg-brand-blue text-white" : "bg-white border"}` }, "D\xEDa"), /* @__PURE__ */ React.createElement("button", { onClick: () => setModoReporte("mes"), className: `flex-1 py-2.5 rounded-xl text-sm font-semibold ${modoReporte === "mes" ? "bg-brand-blue text-white" : "bg-white border"}` }, "Mes"), /* @__PURE__ */ React.createElement("button", { onClick: () => setModoReporte("anio"), className: `flex-1 py-2.5 rounded-xl text-sm font-semibold ${modoReporte === "anio" ? "bg-brand-blue text-white" : "bg-white border"}` }, "A\xF1o")), modoReporte === "dia" ? /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: fechaReporte, onChange: (e) => setFechaReporte(e.target.value), className: "flex-1 px-3 py-2 rounded-xl border" }), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "ghost", onClick: () => setFechaReporte(today()) }, "Hoy")), /* @__PURE__ */ React.createElement("div", { className: "font-bold text-brand-blue mt-2" }, formatFechaLarga(fechaReporte))) : modoReporte === "mes" ? /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement(Select, { label: "Mes", value: mesReporte, onChange: (e) => setMesReporte(e.target.value) }, mesesOpts.map((m) => /* @__PURE__ */ React.createElement("option", { key: m, value: m }, formatMes(m))))) : /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement(Select, { label: "A\xF1o", value: anioReporte, onChange: (e) => setAnioReporte(e.target.value) }, [anioReporte, ...anios].filter((v, i, a) => a.indexOf(v) === i).map((a) => /* @__PURE__ */ React.createElement("option", { key: a, value: a }, a)))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3 text-center bg-sky-50" }, /* @__PURE__ */ React.createElement("div", { className: "text-xl font-bold text-brand-blue" }, st.vendidos.length), /* @__PURE__ */ React.createElement("div", { className: "text-[11px]" }, "Entregas")), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 text-center bg-emerald-50" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-emerald-600" }, formatMoney(st.cobrado)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px]" }, "Cobrado"))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "font-semibold mb-2" }, "Bidones"), /* @__PURE__ */ React.createElement("div", { className: "text-sm space-y-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Normal"), /* @__PURE__ */ React.createElement("strong", null, st.bidN)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Mayorista 1"), /* @__PURE__ */ React.createElement("strong", null, st.bidM)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Mayorista 2"), /* @__PURE__ */ React.createElement("strong", null, st.bidM2 || 0)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "$0"), /* @__PURE__ */ React.createElement("strong", null, st.bid0)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Dispenser"), /* @__PURE__ */ React.createElement("strong", null, st.bidD)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between border-t pt-1" }, /* @__PURE__ */ React.createElement("span", null, "Total"), /* @__PURE__ */ React.createElement("strong", null, st.bidN + st.bidM + (st.bidM2 || 0) + st.bid0 + st.bidD)))), (modoReporte === "mes" || modoReporte === "anio") && /* @__PURE__ */ React.createElement(Card, { className: "bg-sky-50" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-brand-blue mb-2" }, "Cierre ", modoReporte === "mes" ? formatMes(mesReporte) : anioReporte), /* @__PURE__ */ React.createElement("div", { className: "text-sm space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between gap-2" }, /* @__PURE__ */ React.createElement("span", null, "Bidones vendidos"), /* @__PURE__ */ React.createElement("strong", null, bidVendidos)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between gap-2" }, /* @__PURE__ */ React.createElement("span", null, "Minorista"), /* @__PURE__ */ React.createElement("strong", null, bidMinor)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between gap-2" }, /* @__PURE__ */ React.createElement("span", null, "Mayorista (1+2)"), /* @__PURE__ */ React.createElement("strong", null, bidMayor)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between gap-2" }, /* @__PURE__ */ React.createElement("span", null, "Dispenser (no venta)"), /* @__PURE__ */ React.createElement("strong", null, st.bidD)), /* @__PURE__ */ React.createElement("div", { className: "border-t pt-2" }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, "Clientes que m\xE1s pidieron"), ranking.slice(0, 3).length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, "\u2014") : ranking.slice(0, 3).map((r, i) => /* @__PURE__ */ React.createElement("div", { key: r.id, className: "font-semibold" }, i + 1, ". ", r.nombre, " \xB7 ", r.n, " bid"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, "Cliente que menos pidi\xF3"), /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, menosPidio ? `${menosPidio.nombre} \xB7 ${menosPidio.n} bid` : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, "Hace m\xE1s que no pide"), /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, haceMucho ? `${haceMucho.c.nombre} \xB7 ${haceMucho.ult ? formatFechaLarga(haceMucho.ult) : "nunca pidi\xF3"}` : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, "Dispenser que m\xE1s consumi\xF3"), /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, dispMas ? `${dispMas.nombre} \xB7 ${dispMas.n} bid` : "\u2014")), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, "Dispenser que menos consumi\xF3"), /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, dispMenos ? `${dispMenos.nombre} \xB7 ${dispMenos.n} bid` : "\u2014")))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "font-semibold mb-2" }, "Plata"), /* @__PURE__ */ React.createElement("div", { className: "text-sm space-y-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Efectivo"), /* @__PURE__ */ React.createElement("strong", null, formatMoney(st.efec))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Transf."), /* @__PURE__ */ React.createElement("strong", null, formatMoney(st.trans))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Cobrado"), /* @__PURE__ */ React.createElement("strong", { className: "text-emerald-600" }, formatMoney(st.cobrado))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "A transferir"), /* @__PURE__ */ React.createElement("strong", { className: "text-amber-600" }, formatMoney(st.transPendMonto))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Debe"), /* @__PURE__ */ React.createElement("strong", { className: "text-red-500" }, formatMoney(st.debe)))), /* @__PURE__ */ React.createElement("p", { className: "text-[11px] text-slate-400 mt-2" }, "Dispenser y $0 no suman recaudaci\xF3n. \u201CDebe\u201D incluye transferencias sin acreditar.")), modoReporte === "dia" && st.vendidos.map((p) => {
+        const cli = db.clientes.find((c) => c.id === p.clienteId);
+        return /* @__PURE__ */ React.createElement(Card, { key: p.id, className: "!p-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "font-medium text-sm" }, cli?.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, p.cantidad, " bid \xB7 ", etiquetaPrecio(p.tipoPrecio), " \xB7 ", p.formaPago, esVentaPlata(p) ? ` \xB7 ${formatMoney(p.cantidad * precioDePedido(p, db))}` : ""));
+      })));
+    }
+    if (section === "cierre") {
+      const lista = db.pedidos.filter((p) => p.fecha === fechaCierre && p.estado !== "Cancelado");
+      const st = calcStats(lista);
+      const transfPend = lista.filter((p) => p.formaPago === "Transferencia" && !p.transferenciaAcreditada);
+      const deudasDia = lista.filter((p) => esImpago(p));
+      const gastosDia = (db.gastos || []).filter((g) => g.fecha === fechaCierre);
+      const totalGastosDia = gastosDia.reduce((s, g) => s + (Number(g.monto) || 0), 0);
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Cierre de caja", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-4 space-y-3" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: fechaCierre, onChange: (e) => setFechaCierre(e.target.value), className: "flex-1 px-3 py-2 rounded-xl border" }), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "ghost", onClick: () => setFechaCierre(today()) }, "Hoy")), /* @__PURE__ */ React.createElement("div", { className: "font-bold text-brand-blue mt-2" }, formatFechaLarga(fechaCierre))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(Card, { className: "bg-emerald-50 !p-3 stat-box" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-emerald-800" }, "Efectivo"), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-bold text-emerald-700" }, formatMoney(st.efec))), /* @__PURE__ */ React.createElement(Card, { className: "bg-red-50 !p-3 stat-box" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-red-700" }, "Deben / a transferir"), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-bold text-red-600" }, formatMoney(st.debe)))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "font-semibold mb-2" }, "Resumen del d\xEDa"), /* @__PURE__ */ React.createElement("div", { className: "text-sm space-y-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Entregas"), /* @__PURE__ */ React.createElement("strong", null, st.vendidos.length)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Bidones"), /* @__PURE__ */ React.createElement("strong", null, st.bidN + st.bidM + (st.bidM2 || 0) + st.bid0 + st.bidD)), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Efectivo cobrado"), /* @__PURE__ */ React.createElement("strong", null, formatMoney(st.efec))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Transf. acreditadas"), /* @__PURE__ */ React.createElement("strong", null, formatMoney(st.trans))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "A transferir (pend.)"), /* @__PURE__ */ React.createElement("strong", { className: "text-amber-600" }, formatMoney(st.transPendMonto))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Cobrado total"), /* @__PURE__ */ React.createElement("strong", { className: "text-emerald-600" }, formatMoney(st.cobrado))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Qued\xF3 debiendo"), /* @__PURE__ */ React.createElement("strong", { className: "text-red-500" }, formatMoney(st.debe))))), /* @__PURE__ */ React.createElement(Card, { className: "bg-amber-50" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-amber-800 mb-1" }, "Van a transferir"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-amber-700 mb-2" }, formatMoney(st.transPendMonto), " \xB7 ", transfPend.length, " pedido(s)"), transfPend.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500" }, "Nada pendiente de transferir") : transfPend.map((p) => {
+        const cli = db.clientes.find((c) => c.id === p.clienteId);
+        return /* @__PURE__ */ React.createElement("div", { key: p.id, className: "flex justify-between items-center py-1.5 border-b border-amber-100 last:border-0" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium" }, cli?.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, formatMoney(p.cantidad * precioDePedido(p, db)))), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "outline", onClick: () => {
+          const next = acreditarTransferencia(db, p.id);
+          setDb(next);
+          saveDB(next);
+        } }, "Acreditar"));
+      })), /* @__PURE__ */ React.createElement(Card, { className: "bg-red-50" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-red-700 mb-1" }, "Deudas del d\xEDa"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-red-600 mb-2" }, formatMoney(st.debe)), deudasDia.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500" }, "Nadie debe de este d\xEDa") : deudasDia.map((p) => {
+        const cli = db.clientes.find((c) => c.id === p.clienteId);
+        return /* @__PURE__ */ React.createElement("div", { key: p.id, className: "text-sm py-1 flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, cli?.nombre, p.formaPago === "Transferencia" ? " \xB7 transf." : ""), /* @__PURE__ */ React.createElement("strong", null, formatMoney(p.cantidad * precioDePedido(p, db))));
+      })), /* @__PURE__ */ React.createElement(Card, { className: "bg-slate-50" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold mb-1" }, "Gastos del d\xEDa (aparte)"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold mb-1" }, formatMoney(totalGastosDia)), /* @__PURE__ */ React.createElement("p", { className: "text-[11px] text-slate-500 mb-2" }, "No se restan de lo cobrado."), gastosDia.map((g) => /* @__PURE__ */ React.createElement("div", { key: g.id, className: "text-sm flex justify-between" }, /* @__PURE__ */ React.createElement("span", null, g.concepto), /* @__PURE__ */ React.createElement("strong", null, formatMoney(g.monto)))))));
+    }
+    if (section === "envases") {
+      const lista = db.clientes.filter((c) => (c.envasesPendientes || 0) > 0).sort((a, b) => (b.envasesPendientes || 0) - (a.envasesPendientes || 0));
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Deben envases", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-2" }, /* @__PURE__ */ React.createElement(Card, { className: "bg-orange-50 !p-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-bold text-orange-600" }, lista.reduce((s, c) => s + (c.envasesPendientes || 0), 0)), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500" }, "Envases pendientes \xB7 ", lista.length, " clientes")), lista.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-center text-slate-400 py-8" }, "Nadie debe envases") : lista.map((c) => /* @__PURE__ */ React.createElement(Card, { key: c.id, className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, c.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, c.barrio || c.direccion || "")), /* @__PURE__ */ React.createElement("div", { className: "text-orange-600 font-bold" }, c.envasesPendientes, " env."))))));
+    }
+
+    if (section === "alertas") {
+      const umbral = diasAlerta;
+      const inactivos = (db.clientes || []).map((c) => {
+        const ult = ultimaFechaPedidoCliente(db, c.id);
+        const dias = ult == null ? 9999 : diasDesde(ult);
+        return { c, ult, dias: dias == null ? 9999 : dias };
+      }).filter((x) => x.dias >= umbral).sort((a, b) => b.dias - a.dias);
+      const deudores = (db.clientes || []).filter((c) => (Number(c.deuda) || 0) > 0).map((c) => {
+        const f = fechaDeudaMasAntigua(db, c.id);
+        const dias = f == null ? 0 : diasDesde(f);
+        return { c, f, dias: dias == null ? 0 : dias };
+      }).filter((x) => x.dias >= umbral).sort((a, b) => b.dias - a.dias);
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" },
+        /* @__PURE__ */ React.createElement(Header, { title: "Alertas 15 / 30 d\xEDas", onBack: () => setSection(null) }),
+        /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-3" },
+          /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" },
+            /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setDiasAlerta(15), className: "flex-1 py-2 rounded-xl text-sm font-semibold " + (diasAlerta === 15 ? "bg-brand-blue text-white" : "bg-white border text-slate-600") }, "+15 d\xEDas"),
+            /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setDiasAlerta(30), className: "flex-1 py-2 rounded-xl text-sm font-semibold " + (diasAlerta === 30 ? "bg-brand-orange text-white" : "bg-white border text-slate-600") }, "+30 d\xEDas")
+          ),
+          /* @__PURE__ */ React.createElement(Card, { className: "!p-3 bg-red-50" },
+            /* @__PURE__ */ React.createElement("div", { className: "font-bold text-red-600 mb-1" }, "Deben hace ", umbral, "+ d\xEDas \xB7 ", deudores.length),
+            /* @__PURE__ */ React.createElement("p", { className: "text-[11px] text-slate-500 mb-2" }, "Seg\xFAn el pedido impago m\xE1s viejo")
+          ),
+          deudores.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-400" }, "Nadie en este rango") : deudores.map(({ c, f, dias }) => /* @__PURE__ */ React.createElement(Card, { key: c.id, className: "!p-3 mb-2" },
+            /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, c.nombre),
+            /* @__PURE__ */ React.createElement("div", { className: "text-sm text-red-600 font-bold" }, formatMoney(c.deuda || 0)),
+            /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500" }, dias, " d\xEDas", f ? " \xB7 desde " + f : " \xB7 sin fecha de pedido")
+          )),
+          /* @__PURE__ */ React.createElement(Card, { className: "!p-3 bg-amber-50 mt-2" },
+            /* @__PURE__ */ React.createElement("div", { className: "font-bold text-amber-700 mb-1" }, "Sin pedir hace ", umbral, "+ d\xEDas \xB7 ", inactivos.length),
+            /* @__PURE__ */ React.createElement("p", { className: "text-[11px] text-slate-500 mb-2" }, "\xDAltimo pedido (cualquier estado salvo cancelado)")
+          ),
+          inactivos.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-400" }, "Nadie en este rango") : inactivos.map(({ c, ult, dias }) => /* @__PURE__ */ React.createElement(Card, { key: c.id, className: "!p-3 mb-2" },
+            /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, c.nombre),
+            /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-500" }, dias >= 9999 ? "Nunca pidi\xF3" : dias + " d\xEDas sin pedir"),
+            ult ? /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-400" }, "\xDAltimo: ", ult) : null,
+            c.barrio ? /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-brand-blue" }, c.barrio) : null
+          ))
+        )
+      );
+    }
+
+    if (section === "deudas") {
+      const conDeuda = db.clientes.filter((c) => (c.deuda || 0) > 0).sort((a, b) => (b.deuda || 0) - (a.deuda || 0));
+      const transfPend = db.pedidos.filter((p) => p.formaPago === "Transferencia" && !p.transferenciaAcreditada && p.estado !== "Cancelado").sort((a, b) => b.fecha.localeCompare(a.fecha));
+      const totalDeuda = conDeuda.reduce((s, c) => s + (Number(c.deuda) || 0), 0);
+      const totalTransf = transfPend.reduce((s, p) => s + (Number(p.cantidad) || 0) * precioDePedido(p, db), 0);
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Deudas y transferencias", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box bg-red-50" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-red-600" }, formatMoney(totalDeuda)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500 mt-1" }, "Total deudas \xB7 ", conDeuda.length)), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box bg-amber-50" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold text-amber-700" }, formatMoney(totalTransf)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500 mt-1" }, "Total transf. \xB7 ", transfPend.length))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { className: "font-bold mb-2 text-red-600" }, "Clientes que deben"), conDeuda.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-400 mb-2" }, "Nadie debe plata") : conDeuda.map((c) => /* @__PURE__ */ React.createElement(Card, { key: c.id, className: "!p-3 mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, c.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, c.barrio || "")), /* @__PURE__ */ React.createElement("div", { className: "text-red-600 font-bold" }, formatMoney(c.deuda)))))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { className: "font-bold mb-2 text-amber-600" }, "Transferencias sin confirmar"), transfPend.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-400" }, "Ninguna pendiente") : transfPend.map((p) => {
+        const cli = db.clientes.find((c) => c.id === p.clienteId);
+        return /* @__PURE__ */ React.createElement(Card, { key: p.id, className: "!p-3 mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold truncate" }, cli?.nombre || "\u2014"), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, p.fecha, " \xB7 ", p.cantidad, " bid \xB7 ", formatMoney(p.cantidad * precioDePedido(p, db)))), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "outline", onClick: () => {
+          const next = acreditarTransferencia(db, p.id);
+          setDb(next);
+          saveDB(next);
+        } }, "OK")));
+      }))));
+    }
+    if (section === "barrios") {
+      const usados = [...new Set(db.clientes.map((c) => (c.barrio || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+      const orden = db.barrioOrden || [];
+      const mover = (i, dir) => {
+        const arr = [...orden];
+        const j = i + dir;
+        if (j < 0 || j >= arr.length) return;
+        const t = arr[i];
+        arr[i] = arr[j];
+        arr[j] = t;
+        const next = { ...db, barrioOrden: arr };
+        setDb(next);
+        saveDB(next);
+      };
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Orden de barrios", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-2" }, /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500" }, "El 1\xBA barrio sale primero en el reparto cuando toc\xE1s \u201COrdenar por barrio\u201D."), orden.length === 0 && /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-400" }, "Agreg\xE1 barrios a la lista."), orden.map((b, i) => /* @__PURE__ */ React.createElement(Card, { key: b + i, className: "!p-3 flex items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "w-7 h-7 rounded-full bg-brand-blue text-white text-xs font-bold flex items-center justify-center" }, i + 1), /* @__PURE__ */ React.createElement("div", { className: "flex-1 font-medium" }, b), /* @__PURE__ */ React.createElement("button", { className: "px-2 py-1 text-slate-500", onClick: () => mover(i, -1) }, "\u2191"), /* @__PURE__ */ React.createElement("button", { className: "px-2 py-1 text-slate-500", onClick: () => mover(i, 1) }, "\u2193"), /* @__PURE__ */ React.createElement("button", { className: "text-red-500 text-xs font-semibold", onClick: () => {
+        const next = { ...db, barrioOrden: orden.filter((_, x) => x !== i) };
+        setDb(next);
+        saveDB(next);
+      } }, "Quitar"))), /* @__PURE__ */ React.createElement("h3", { className: "font-bold pt-2" }, "Barrios de clientes"), usados.filter((b) => !orden.some((o) => o.toLowerCase() === b.toLowerCase())).map((b) => /* @__PURE__ */ React.createElement("button", { key: b, className: "w-full text-left px-3 py-2 bg-white rounded-xl border mb-1", onClick: () => {
+        const next = { ...db, barrioOrden: [...orden, b] };
+        setDb(next);
+        saveDB(next);
+      } }, "+ ", b)), /* @__PURE__ */ React.createElement(Button, { className: "w-full mt-2", variant: "outline", onClick: () => {
+        const n = prompt("Nombre del barrio");
+        if (!n) return;
+        const next = { ...db, barrioOrden: [...orden, n.trim()] };
+        setDb(next);
+        saveDB(next);
+      } }, "+ Agregar barrio")));
+    }
+    if (section === "recorridos") {
+      const lista = db.recorridos || [];
+      if (recEdit) {
+        const ids = recEdit.clienteIds || [];
+        const q = recQ.toLowerCase();
+        const cand = db.clientes.filter((c) => !ids.includes(c.id) && (!q || (c.nombre || "").toLowerCase().includes(q) || (c.barrio || "").toLowerCase().includes(q))).sort(sortNombre).slice(0, 12);
+        const toggleDia = (n) => {
+          const dias = recEdit.dias || [];
+          setRecEdit({ ...recEdit, dias: dias.includes(n) ? dias.filter((x) => x !== n) : [...dias, n].sort() });
+        };
+        const guardarRec = () => {
+          if (!recEdit.nombre || !recEdit.nombre.trim()) return alert("Pon\xE9 un nombre");
+          const item = { ...recEdit, id: recEdit.id || uid(), nombre: recEdit.nombre.trim(), dias: recEdit.dias || [], clienteIds: recEdit.clienteIds || [] };
+          const recs = item.id && lista.some((r) => r.id === item.id) ? lista.map((r) => r.id === item.id ? item : r) : [...lista, item];
+          const next = { ...db, recorridos: recs };
+          setDb(next);
+          saveDB(next);
+          setRecEdit(null);
+          setRecQ("");
+        };
+        return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: recEdit.id ? "Editar recorrido" : "Nuevo recorrido", onBack: () => {
+          setRecEdit(null);
+          setRecQ("");
+        } }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-3" }, /* @__PURE__ */ React.createElement(Input, { label: "Nombre", value: recEdit.nombre || "", onChange: (e) => setRecEdit({ ...recEdit, nombre: e.target.value }), placeholder: "Ej. Lunes / centro" }), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-medium text-slate-600 mb-1" }, "D\xEDas"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, DIAS_CORTOS.map((lab, i) => /* @__PURE__ */ React.createElement("button", { key: i, onClick: () => toggleDia(i), className: `px-3 py-2 rounded-xl text-xs font-semibold ${(recEdit.dias || []).includes(i) ? "bg-brand-blue text-white" : "bg-white border"}` }, lab))), /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, "Clientes (", ids.length, ")"), ids.map((cid) => {
+          const c = db.clientes.find((x) => x.id === cid);
+          return /* @__PURE__ */ React.createElement("div", { key: cid, className: "flex justify-between items-center bg-white rounded-xl border px-3 py-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm" }, c?.nombre || "\u2014"), /* @__PURE__ */ React.createElement("button", { className: "text-red-500 text-xs font-semibold", onClick: () => setRecEdit({ ...recEdit, clienteIds: ids.filter((x) => x !== cid) }) }, "Quitar"));
+        }), /* @__PURE__ */ React.createElement(Input, { label: "Agregar cliente", value: recQ, onChange: (e) => setRecQ(e.target.value), placeholder: "Buscar..." }), cand.map((c) => /* @__PURE__ */ React.createElement("button", { key: c.id, className: "w-full text-left px-3 py-2 bg-white rounded-xl border mb-1", onClick: () => {
+          setRecEdit({ ...recEdit, clienteIds: [...ids, c.id] });
+          setRecQ("");
+        } }, "+ ", c.nombre, " ", /* @__PURE__ */ React.createElement("span", { className: "text-slate-400 text-xs" }, c.barrio))), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: guardarRec }, "Guardar recorrido")));
+      }
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Recorridos", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-2" }, /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-500" }, "Arm\xE1 hojas con nombre y d\xEDas. Despu\xE9s las carg\xE1s al reparto del d\xEDa."), lista.length === 0 && /* @__PURE__ */ React.createElement("p", { className: "text-center text-slate-400 py-6" }, "Ning\xFAn recorrido todav\xEDa"), lista.map((r) => /* @__PURE__ */ React.createElement(Card, { key: r.id, className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, r.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500 mt-0.5" }, (r.dias || []).map((d) => DIAS_CORTOS[d]).join(" \xB7 ") || "Sin d\xEDas", " \xB7 ", (r.clienteIds || []).length, " clientes"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-2" }, /* @__PURE__ */ React.createElement(Button, { size: "sm", className: "flex-1", onClick: () => {
+        const n = cargarRecorridoEnFecha(db, r, today());
+        const c = n._cargados || 0;
+        delete n._cargados;
+        setDb(n);
+        saveDB(n);
+        alert(c ? `Se sumaron ${c} pedidos a hoy` : "Esos clientes ya estaban hoy");
+      } }, "Cargar hoy"), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "outline", className: "flex-1", onClick: () => setRecEdit({ ...r, clienteIds: [...r.clienteIds || []], dias: [...r.dias || []] }) }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: "text-red-500 text-xs font-semibold px-2", onClick: () => {
+        if (!confirm("\xBFBorrar recorrido?")) return;
+        const next = { ...db, recorridos: lista.filter((x) => x.id !== r.id) };
+        setDb(next);
+        saveDB(next);
+      } }, "\u2715")))), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: () => setRecEdit({ nombre: "", dias: [], clienteIds: [] }) }, "+ Nuevo recorrido")));
+    }
+    if (section === "inventario") {
+      const inv = db.inventario || { envases: 0, dispenserNatural: 0 };
+      const prestados = db.clientes.filter((c) => (c.envasesPendientes || 0) > 0);
+      const movs = (db.movimientosInv || []).slice(0, 30);
+      const ingresar = (tipo) => {
+        const n = Number(prompt("\xBFCu\xE1ntos ingresan?"));
+        if (!n) return;
+        const next = moverStock(db, tipo, n, "Ingreso");
+        setDb(next);
+        saveDB(next);
+      };
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Envases y disp. natural", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-bold text-brand-blue" }, inv.envases || 0), /* @__PURE__ */ React.createElement("div", { className: "text-[11px]" }, "Envases en dep\xF3sito"), /* @__PURE__ */ React.createElement(Button, { size: "sm", className: "mt-2 w-full", onClick: () => ingresar("envase") }, "Ingresar")), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-2xl font-bold text-brand-orange" }, inv.dispenserNatural || 0), /* @__PURE__ */ React.createElement("div", { className: "text-[11px]" }, "Disp. natural"), /* @__PURE__ */ React.createElement(Button, { size: "sm", variant: "orange", className: "mt-2 w-full", onClick: () => ingresar("dispenserNatural") }, "Ingresar"))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-500" }, "Venta descuenta stock e incluye la recarga. Pr\xE9stamo queda en el cliente y tambi\xE9n descuenta stock."), /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, "Prestados a clientes"), prestados.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-400" }, "Nadie debe envase") : prestados.map((c) => /* @__PURE__ */ React.createElement(Card, { key: c.id, className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, c.nombre), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, c.barrio)), /* @__PURE__ */ React.createElement("strong", { className: "text-orange-600" }, c.envasesPendientes, " env.")))), /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, "\xDAltimos movimientos"), movs.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.id, className: "text-xs flex justify-between border-b py-1" }, /* @__PURE__ */ React.createElement("span", null, m.fecha, " \xB7 ", m.tipo === "envase" ? "Envase" : "Disp. natural", " \xB7 ", m.nota), /* @__PURE__ */ React.createElement("b", null, m.cantidad > 0 ? "+" : "", m.cantidad)))));
+    }
+    if (section === "gastos") {
+      const lista = [...db.gastos || []].sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
+      const total = lista.reduce((s, g) => s + (Number(g.monto) || 0), 0);
+      const delMes = lista.filter((g) => (g.fecha || "").startsWith(mesAR()));
+      const totalMes = delMes.reduce((s, g) => s + (Number(g.monto) || 0), 0);
+      return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Gastos", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box bg-slate-50" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold" }, formatMoney(totalMes)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500 mt-1" }, "Este mes")), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 stat-box bg-slate-50" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold" }, formatMoney(total)), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500 mt-1" }, "Hist\xF3rico"))), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-500" }, "Los gastos no se restan de la recaudaci\xF3n ni de las deudas. Solo se anotan aparte."), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(Input, { label: "Fecha", type: "date", value: gastoForm.fecha, onChange: (e) => setGastoForm({ ...gastoForm, fecha: e.target.value }) }), /* @__PURE__ */ React.createElement(Input, { label: "Qu\xE9 se pag\xF3", value: gastoForm.concepto, onChange: (e) => setGastoForm({ ...gastoForm, concepto: e.target.value }), placeholder: "Nafta, envases, etc." }), /* @__PURE__ */ React.createElement(Input, { label: "Monto $", type: "number", min: "0", value: gastoForm.monto, onChange: (e) => setGastoForm({ ...gastoForm, monto: e.target.value }) }), /* @__PURE__ */ React.createElement(Button, { className: "w-full", onClick: () => {
+        if (!gastoForm.concepto.trim() || !gastoForm.monto) return alert("Complet\xE1 concepto y monto");
+        const g = { id: uid(), fecha: gastoForm.fecha || today(), concepto: gastoForm.concepto.trim(), monto: Number(gastoForm.monto) || 0 };
+        const next = { ...db, gastos: [...db.gastos || [], g] };
+        setDb(next);
+        saveDB(next);
+        setGastoForm({ fecha: today(), concepto: "", monto: "" });
+      } }, "Anotar gasto")), lista.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-center text-slate-400 py-6" }, "Sin gastos anotados") : lista.map((g) => /* @__PURE__ */ React.createElement(Card, { key: g.id, className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-semibold" }, g.concepto), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500" }, formatFechaLarga(g.fecha))), /* @__PURE__ */ React.createElement("div", { className: "text-right" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, formatMoney(g.monto)), /* @__PURE__ */ React.createElement("button", { className: "text-[11px] text-red-500 font-semibold", onClick: () => {
+        const next = { ...db, gastos: (db.gastos || []).filter((x) => x.id !== g.id) };
+        setDb(next);
+        saveDB(next);
+      } }, "Borrar")))))));
+    }
+    if (section === "precios") return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "Precios", onBack: () => setSection(null) }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-4" }, /* @__PURE__ */ React.createElement(Input, { label: "Bid\xF3n normal ($)", type: "number", min: "0", value: db.precios?.bidon ?? 2500, onChange: (e) => {
+      const next = { ...db, precios: { ...db.precios, bidon: Number(e.target.value) } };
+      setDb(next);
+      saveDB(next);
+    } }), /* @__PURE__ */ React.createElement(Input, { label: "Bid\xF3n mayorista 1 ($)", type: "number", min: "0", value: db.precios?.bidonMayorista ?? 2e3, onChange: (e) => {
+      const next = { ...db, precios: { ...db.precios, bidonMayorista: Number(e.target.value) } };
+      setDb(next);
+      saveDB(next);
+    } }), /* @__PURE__ */ React.createElement(Input, { label: "Bid\xF3n mayorista 2 ($)", type: "number", min: "0", value: db.precios?.bidonMayorista2 ?? 1800, onChange: (e) => {
+      const next = { ...db, precios: { ...db.precios, bidonMayorista2: Number(e.target.value) } };
+      setDb(next);
+      saveDB(next);
+    } }), /* @__PURE__ */ React.createElement(Input, { label: "Envase con recarga ($)", type: "number", min: "0", value: db.precios?.envase ?? 8e3, onChange: (e) => {
+      const next = { ...db, precios: { ...db.precios, envase: Number(e.target.value) } };
+      setDb(next);
+      saveDB(next);
+    } }), /* @__PURE__ */ React.createElement(Input, { label: "Dispenser natural ($ , sin recarga)", type: "number", min: "0", value: db.precios?.dispenserNatural ?? 45e3, onChange: (e) => {
+      const next = { ...db, precios: { ...db.precios, dispenserNatural: Number(e.target.value) } };
+      setDb(next);
+      saveDB(next);
+    } }), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-500 -mt-2 mb-3" }, "En cada pedido: normal, mayorista 1, mayorista 2 o ", /* @__PURE__ */ React.createElement("strong", null, "$0"), "."), /* @__PURE__ */ React.createElement(Input, { label: "Alquiler dispenser ($)", type: "number", min: "0", value: db.precios?.alquilerBase ?? 15e3, onChange: (e) => {
+      const next = { ...db, precios: { ...db.precios, alquilerBase: Number(e.target.value) } };
+      setDb(next);
+      saveDB(next);
+    } })));
+    const importarBackup = (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          if (!data || typeof data !== "object") throw new Error("Formato inv\xE1lido");
+          if (!confirm("\xBFReemplazar todos los datos actuales por el backup?")) return;
+          const next = { ...defaultData, ...data };
+          setDb(next);
+          saveDB(next);
+          alert("Backup importado correctamente");
+          setSection(null);
+        } catch (err) {
+          alert("No se pudo leer el archivo");
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "pb-24" }, /* @__PURE__ */ React.createElement(Header, { title: "M\xE1s opciones" }), /* @__PURE__ */ React.createElement("div", { className: "px-4 py-3 space-y-2" }, /* @__PURE__ */ React.createElement(Card, { className: "bg-sky-50 !p-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold text-brand-blue" }, "Uso offline"), /* @__PURE__ */ React.createElement("p", { className: "text-xs text-slate-600 mt-1" }, "Abrila en Chrome, no desde WhatsApp. Sub\xED manifest.json, sw.js y los \xEDconos. Despu\xE9s men\xFA \u22EE \u2192 Instalar app."), /* @__PURE__ */ React.createElement(Button, { className: "w-full mt-2", onClick: onInstall }, puedeInstalar ? "Instalar ahora" : "No me deja instalar")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("cierre"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "dollar", size: 22, className: "text-emerald-600" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Cierre de caja")), /* @__PURE__ */ React.createElement(Card, { onClick: () => {
+      setModoReporte("mes");
+      setMesReporte(mesAR());
+      setSection("reporte");
+    }, className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "package", size: 22, className: "text-brand-orange" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Reporte de ventas")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("envases"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "package", size: 22, className: "text-orange-600" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Deben envases")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("alertas"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "users", size: 22, className: "text-amber-600" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Alertas 15 / 30 d\xEDas")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("deudas"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "dollar", size: 22, className: "text-red-500" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Deudas y transferencias")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("recorridos"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "map", size: 22, className: "text-brand-orange" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Recorridos")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("barrios"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "map", size: 22, className: "text-brand-blue" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Orden de barrios")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("repartidores"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "users", size: 22, className: "text-brand-blue" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Repartidores")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("vehiculos"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "truck", size: 22, className: "text-brand-blue" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Veh\xEDculos")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("inventario"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "package", size: 22, className: "text-orange-600" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Envases y disp. natural")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("gastos"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "dollar", size: 22, className: "text-slate-600" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Gastos")), /* @__PURE__ */ React.createElement(Card, { onClick: () => setSection("precios"), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "dollar", size: 22, className: "text-brand-blue" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Precios")), /* @__PURE__ */ React.createElement(Card, { onClick: () => {
+      if (confirm("\xBFExportar backup?")) {
+        const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `backup-${today()}.json`;
+        a.click();
+      }
+    }, className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "package", size: 22, className: "text-brand-blue" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Exportar backup")), /* @__PURE__ */ React.createElement(Card, { onClick: () => importRef.current?.click(), className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "package", size: 22, className: "text-brand-blue" }), /* @__PURE__ */ React.createElement("span", { className: "font-medium" }, "Importar backup")), /* @__PURE__ */ React.createElement("input", { ref: importRef, type: "file", accept: "application/json,.json", className: "hidden", onChange: importarBackup })));
+  }
+  function App() {
+    const [splash, setSplash] = useState(true);
+    const [db, setDb] = useState(loadDB);
+    const [tab, setTab] = useState("inicio");
+    const [fechaReparto, setFechaReparto] = useState(today());
+    const [showNuevoPedido, setShowNuevoPedido] = useState(false);
+    const [showNuevoCliente, setShowNuevoCliente] = useState(false);
+    const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
+    const [clienteParaPedido, setClienteParaPedido] = useState(null);
+    const [pedidoEditar, setPedidoEditar] = useState(null);
+    const [showSearch, setShowSearch] = useState(false);
+    const [installEvt, setInstallEvt] = useState(null);
+    useEffect(() => {
+      saveDB(db);
+    }, [db]);
+    useEffect(() => {
+      const next = pasarPendientes(db);
+      if (JSON.stringify(next.pedidos) !== JSON.stringify(db.pedidos)) setDb(next);
+    }, []);
+    useEffect(() => {
+      const onBip = (e) => {
+        e.preventDefault();
+        setInstallEvt(e);
+      };
+      window.addEventListener("beforeinstallprompt", onBip);
+      return () => window.removeEventListener("beforeinstallprompt", onBip);
+    }, []);
+    const instalar = async () => {
+      if (!installEvt) {
+        alert("Chrome no ofreci\xF3 instalar. Abrila en Chrome (no desde WhatsApp), esper\xE1 10 segundos y toc\xE1 el men\xFA \u22EE \u2192 Instalar app. Si no aparece, sub\xED tambi\xE9n manifest.json, sw.js y los iconos.");
+        return;
+      }
+      installEvt.prompt();
+      await installEvt.userChoice;
+      setInstallEvt(null);
+    };
+    if (splash) return /* @__PURE__ */ React.createElement(Splash, { onDone: () => setSplash(false) });
+    return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen max-w-lg mx-auto bg-slate-50 relative" }, tab === "inicio" && !clienteSeleccionado && /* @__PURE__ */ React.createElement(Dashboard, { db, setTab, onNewPedido: () => {
+      setClienteParaPedido(null);
+      setPedidoEditar(null);
+      setShowNuevoPedido(true);
+    }, onSearch: () => setShowSearch(true) }), tab === "repartos" && !clienteSeleccionado && /* @__PURE__ */ React.createElement(RepartosScreen, { db, setDb, fecha: fechaReparto, setFecha: setFechaReparto, onEditPedido: (p) => {
+      setPedidoEditar(p);
+      setShowNuevoPedido(true);
+    } }), tab === "clientes" && !clienteSeleccionado && /* @__PURE__ */ React.createElement(ClientesScreen, { db, onSelectCliente: setClienteSeleccionado, onNewCliente: () => setShowNuevoCliente(true) }), tab === "dispensers" && !clienteSeleccionado && /* @__PURE__ */ React.createElement(DispensersScreen, { db, setDb }), tab === "mas" && !clienteSeleccionado && /* @__PURE__ */ React.createElement(MasScreen, { db, setDb, onInstall: instalar, puedeInstalar: !!installEvt }), clienteSeleccionado && /* @__PURE__ */ React.createElement(ClienteDetail, { cliente: clienteSeleccionado, db, setDb, onLive: setClienteSeleccionado, onBack: () => setClienteSeleccionado(null), onEdit: () => setShowNuevoCliente(true), onNewPedido: (c) => {
+      setClienteParaPedido(c);
+      setPedidoEditar(null);
+      setShowNuevoPedido(true);
+    }, onEditPedido: (p) => {
+      setPedidoEditar(p);
+      setClienteParaPedido(null);
+      setShowNuevoPedido(true);
+    } }), showNuevoPedido && /* @__PURE__ */ React.createElement(NuevoPedidoModal, { db, setDb, onClose: () => {
+      setShowNuevoPedido(false);
+      setPedidoEditar(null);
+      setClienteParaPedido(null);
+    }, clientePreseleccionado: clienteParaPedido, pedidoEditar }), showNuevoCliente && /* @__PURE__ */ React.createElement(ClienteFormModal, { db, setDb, clienteEditar: clienteSeleccionado, onClose: (cli) => {
+      setShowNuevoCliente(false);
+      if (cli && clienteSeleccionado) setClienteSeleccionado(cli);
+    } }), showSearch && /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-end justify-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white w-full rounded-t-3xl p-4 max-h-[80vh] overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between mb-3" }, /* @__PURE__ */ React.createElement("h2", { className: "font-bold" }, "Buscar"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowSearch(false) }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 22 }))), /* @__PURE__ */ React.createElement(Input, { autoFocus: true, placeholder: "Nombre", onChange: (e) => {
+      window.__sq = e.target.value.toLowerCase();
+    } }), db.clientes.filter((c) => {
+      const t = window.__sq || "";
+      return !t || (c.nombre || "").toLowerCase().includes(t);
+    }).slice(0, 15).map((c) => /* @__PURE__ */ React.createElement("button", { key: c.id, className: "w-full text-left px-3 py-2 border-b", onClick: () => {
+      setClienteSeleccionado(c);
+      setShowSearch(false);
+      setTab("clientes");
+    } }, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, c.nombre))))), !clienteSeleccionado && /* @__PURE__ */ React.createElement(BottomNav, { tab, setTab }));
+  }
+  try {
+    clearTimeout(window.__adpBoot);
+    const rootEl = document.getElementById("root");
+    ReactDOM.createRoot(rootEl).render(/* @__PURE__ */ React.createElement(App, null));
+    requestAnimationFrame(() => {
+      const m = document.createElement("div");
+      m.setAttribute("data-adp-ready", "1");
+      m.style.display = "none";
+      document.body.appendChild(m);
+    });
+  } catch (err) {
+    const e = document.getElementById("bootErr");
+    if (e) {
+      e.style.display = "block";
+      e.textContent = "Error al iniciar: " + (err && err.message ? err.message : String(err));
+    }
+  }
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=6").catch(() => {
+    }));
+  }
+})();
+
+</script>
+</body>
+</html>
